@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ABS 3D進撃検知送信機</title>
+    <title>ABS ノイズ極限カット送信機</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
-            background-color: #222;
+            background-color: #111;
             color: white;
             text-align: center;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
@@ -46,28 +46,19 @@
             text-align: center;
             margin-right: 8px;
         }
-        input::-webkit-outer-spin-button,
-        input::-webkit-inner-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
-        }
         button {
             padding: 12px 24px;
             font-size: 18px;
-            background-color: #ff9500; /* 進撃検知はオレンジボタンに！ */
+            background-color: #ff3b30; /* 闘志のレッド */
             color: white;
             border: none;
             border-radius: 8px;
             font-weight: bold;
         }
-        button:active {
-            background-color: #cc7600;
-        }
         #status {
             color: #ffcc00;
             margin: 10px 0;
             font-size: 14px;
-            font-weight: 500;
         }
     </style>
 </head>
@@ -80,7 +71,7 @@
     <div id="controls">
         <input type="number" id="pc-id" pattern="[0-9]*" inputmode="numeric" placeholder="4桁のコード">
         <button id="connect-btn">接続</button>
-        <p id="status">カメラを起動中...</p>
+        <p id="status">カメラ起動中...</p>
     </div>
 
     <script>
@@ -93,65 +84,47 @@
         let conn = null;
         let localStream = null;
 
-        // 1. 背面カメラの起動
         navigator.mediaDevices.getUserMedia({
             video: {
                 facingMode: 'environment',
-                frameRate: { ideal: 60 } // ボールを捉えるために60fps必須
+                frameRate: { ideal: 60 }
             },
             audio: false
         })
         .then(stream => {
             video.srcObject = stream;
             localStream = stream;
-            
             video.onloadedmetadata = () => {
                 video.play()
-                .then(() => {
-                    statusText.textContent = "カメラ起動完了。PCと接続してください。";
-                })
+                .then(() => { statusText.textContent = "カメラ起動完了。PCに接続してください。"; })
                 .catch(err => {
                     statusText.textContent = "画面をタップして再生してください。";
-                    document.body.addEventListener('click', () => {
-                        video.play();
-                        statusText.textContent = "カメラ映像再生中...";
-                    }, { once: true });
+                    document.body.addEventListener('click', () => { video.play(); }, { once: true });
                 });
             };
         })
-        .catch(err => {
-            alert("カメラ起動失敗: " + err);
-        });
+        .catch(err => { alert("カメラ起動失敗: " + err); });
 
-        // PCへの接続
         document.getElementById('connect-btn').onclick = () => {
             const inputNum = document.getElementById('pc-id').value;
             if(!inputNum || inputNum.length !== 4) {
-                alert("4桁の正しい数字を入力してください。");
+                alert("4桁の数字を入力してください。");
                 return;
             }
             const pcId = `abs-${inputNum}`; 
             statusText.textContent = "接続中...";
             
             conn = peer.connect(pcId);
-            
             conn.on('open', () => {
-                statusText.textContent = "接続成功！【3D進撃検知モード】で作動中。";
-                if (localStream) {
-                    peer.call(pcId, localStream);
-                }
-                startMotionTracking();
-            });
-
-            conn.on('close', () => {
-                statusText.textContent = "切断されました。";
+                statusText.textContent = "接続成功！【超強力ノイズカットモード】";
+                if (localStream) peer.call(pcId, localStream);
+                startAdvancedTracking();
             });
         };
 
-        // 2. 3D進撃検知（奥行きトラッキング）スキャン
-        function startMotionTracking() {
+        function startAdvancedTracking() {
             let prevFrameData = null;
-            let trackingHistory = []; // 動体の軌跡を記憶するキュー
+            let trackingHistory = [];
 
             function processFrame() {
                 if (video.readyState === video.HAVE_ENOUGH_DATA) {
@@ -159,7 +132,6 @@
                     canvas.height = video.videoHeight;
                     
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    
                     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     const currData = frame.data;
                     
@@ -172,9 +144,17 @@
                     
                     let sumX = 0;
                     let sumY = 0;
-                    let count = 0;
+                    let ballPixelCount = 0;
+                    let totalMovedPixels = 0; // 画面全体で動いた総ピクセル数（ノイズ判定用）
 
-                    // 高速化のため、4ピクセルおきにスキャン
+                    // 【対策②】ROI（検知エリア）を画面の中央付近のみに制限
+                    // 左右の端15%ずつ、上下の端15%ずつを無視する
+                    const minX = Math.floor(canvas.width * 0.15);
+                    const maxX = Math.floor(canvas.width * 0.85);
+                    const minY = Math.floor(canvas.height * 0.15);
+                    const maxY = Math.floor(canvas.height * 0.85);
+
+                    // 高速化スキャン（4px飛ばし）
                     for (let y = 0; y < canvas.height; y += 4) {
                         for (let x = 0; x < canvas.width; x += 4) {
                             const idx = (y * canvas.width + x) * 4;
@@ -183,56 +163,72 @@
                             const gDiff = Math.abs(currData[idx+1] - prevFrameData[idx+1]);
                             const bDiff = Math.abs(currData[idx+2] - prevFrameData[idx+2]);
 
-                            if (rDiff + gDiff + bDiff > 75) { // 動きの感度
-                                sumX += x;
-                                sumY += y;
-                                count++;
+                            // 動き検知の閾値
+                            if (rDiff + gDiff + bDiff > 80) {
+                                totalMovedPixels++; // 画面のどこであれ、動いたピクセルをすべてカウント
+
+                                // 【対策③】ROIエリア内、かつ「白っぽい（RGBの値がすべて一定以上）」ピクセルのみをボール候補とする
+                                if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
+                                    const r = currData[idx];
+                                    const g = currData[idx+1];
+                                    const b = currData[idx+2];
+                                    
+                                    // 白いボール候補（輝度がそこそこ高いもの）
+                                    if (r > 100 && g > 100 && b > 100) {
+                                        sumX += x;
+                                        sumY += y;
+                                        ballPixelCount++;
+                                    }
+                                }
                             }
                         }
                     }
 
+                    // 画面の全走査ピクセル数の概算
+                    const totalScanned = (canvas.width * canvas.height) / 16; 
+
+                    // 【対策①】グローバル・ノイズフィルター
+                    // 画面全体の4%以上が同時に動いた場合は「手ブレ」か「光の自動変化」なので、検知を完全に無視！
+                    const isCameraShaking = (totalMovedPixels / totalScanned) > 0.04;
+
                     const now = performance.now();
 
-                    // 何かが動いた場合、一旦そのデータを記録
-                    if (count > 5 && count < 600) { 
-                        const ballX = sumX / count;
-                        const ballY = sumY / count;
+                    if (!isCameraShaking && ballPixelCount > 4 && ballPixelCount < 400) {
+                        const ballX = sumX / ballPixelCount;
+                        const ballY = sumY / ballPixelCount;
 
                         trackingHistory.push({
                             x: ballX,
                             y: ballY,
-                            size: count, // ピクセル数＝ボールの見かけの大きさ
+                            size: ballPixelCount,
                             time: now
                         });
 
-                        // 過去10フレーム分（約0.16秒）の動きだけを保持
-                        if (trackingHistory.length > 10) {
+                        if (trackingHistory.length > 8) {
                             trackingHistory.shift();
                         }
 
-                        // --- 🚀 【核心】「迫りくるボール」の判定ロジック ---
                         if (trackingHistory.length >= 3) {
                             const first = trackingHistory[0];
                             const last = trackingHistory[trackingHistory.length - 1];
 
-                            // ① Y軸の移動：奥（上）から手前（下）に落ちてきているか
-                            const isMovingForward = (last.y - first.y) > 20;
-
-                            // ② サイズ（面積）の変化：手前に迫るにつれて大きくなっているか
-                            // （奥の時は小さく、手前に来るとピクセル数が1.3倍以上に急増する）
-                            const isGrowing = last.size > (first.size * 1.3);
-
-                            // ③ 時間：一瞬の出来事か（0.3秒以内）
-                            const isPitchSpeed = (last.time - first.time) < 300;
+                            // 「奥から手前に迫ってきているか」
+                            const isMovingForward = (last.y - first.y) > 15;
+                            const isGrowing = last.size > (first.size * 1.2);
+                            const isPitchSpeed = (last.time - first.time) < 250;
 
                             if (isMovingForward && isGrowing && isPitchSpeed) {
-                                // 迫りくるボールと認定！画面にオレンジの円を描画
+                                // 画面にROIの境界線をうっすら表示（デバッグ用）
+                                ctx.strokeStyle = "rgba(0, 255, 255, 0.3)";
+                                ctx.lineWidth = 2;
+                                ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+
+                                // ボールマークを緑に描画
                                 ctx.beginPath();
-                                ctx.arc(ballX, ballY, 20, 0, 2 * Math.PI);
-                                ctx.fillStyle = "#ff9500";
+                                ctx.arc(ballX, ballY, 18, 0, 2 * Math.PI);
+                                ctx.fillStyle = "#30d158";
                                 ctx.fill();
 
-                                // 座標をPCに送信
                                 const ratioX = ballX / canvas.width;
                                 const ratioY = ballY / canvas.height;
 
@@ -242,7 +238,6 @@
                             }
                         }
                     } else {
-                        // 動きが止まったら履歴をゆっくりクリア
                         if (trackingHistory.length > 0) trackingHistory.shift();
                     }
 
