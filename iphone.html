@@ -46,7 +46,6 @@
             text-align: center;
             margin-right: 8px;
         }
-        /* 数字入力時にiOSでテンキーを強制表示させる */
         input::-webkit-outer-spin-button,
         input::-webkit-inner-spin-button {
             -webkit-appearance: none;
@@ -92,8 +91,9 @@
         
         let peer = new Peer();
         let conn = null;
+        let localStream = null; // 【追加】映像ストリームを保存しておく変数
 
-        // 1. 背面カメラの起動（iOS対策の自動再生処理入り）
+        // 1. 背面カメラの起動
         navigator.mediaDevices.getUserMedia({
             video: {
                 facingMode: 'environment',
@@ -103,15 +103,14 @@
         })
         .then(stream => {
             video.srcObject = stream;
+            localStream = stream; // 【追加】ストリームを保存
             
-            // iOSの動画ストップ（静止画化）対策
             video.onloadedmetadata = () => {
                 video.play()
                 .then(() => {
                     statusText.textContent = "カメラ起動完了。PCの4桁コードを入力して接続してください。";
                 })
                 .catch(err => {
-                    // 自動再生がiOSにブロックされた場合は、画面タップで強制再生させる
                     statusText.textContent = "タップしてカメラを再生してください。";
                     document.body.addEventListener('click', () => {
                         video.play();
@@ -133,14 +132,20 @@
                 return;
             }
             
-            // 4桁の数字の頭に自動で「abs-」をつけてPCを探す
             const pcId = `abs-${inputNum}`; 
-            
             statusText.textContent = "接続しています...";
+            
+            // 1. データの接続 (球の座標などの配信用)
             conn = peer.connect(pcId);
             
             conn.on('open', () => {
-                statusText.textContent = "PCに接続成功！ボール追跡を開始します。";
+                statusText.textContent = "PCに接続成功！カメラ映像を送信します...";
+                
+                // 2. 【追加】映像ストリームの接続 (ビデオ通話を開始して映像をPCに送る)
+                if (localStream) {
+                    peer.call(pcId, localStream);
+                }
+                
                 startTracking();
             });
 
@@ -156,7 +161,6 @@
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                     
-                    // カメラの映像フレームをキャンバスに描画
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                     
                     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -166,7 +170,6 @@
                     let sumY = 0;
                     let count = 0;
 
-                    // 高速化のため、4ピクセルおきにスキャン
                     for (let y = 0; y < canvas.height; y += 4) {
                         for (let x = 0; x < canvas.width; x += 4) {
                             const index = (y * canvas.width + x) * 4;
@@ -174,7 +177,6 @@
                             const g = data[index + 1];
                             const b = data[index + 2];
 
-                            // 黄色の検出条件（赤と緑が強く、青が極端に低いピクセル）
                             if (r > 130 && g > 130 && b < 80 && (r - b) > 50 && (g - b) > 50) {
                                 sumX += x;
                                 sumY += y;
@@ -183,18 +185,15 @@
                         }
                     }
 
-                    // 黄色のカタマリが一定サイズ以上検知できた場合
                     if (count > 15) {
                         const ballX = sumX / count;
                         const ballY = sumY / count;
 
-                        // iPhoneの画面にターゲット検知の赤丸を重ねる
                         ctx.beginPath();
                         ctx.arc(ballX, ballY, 15, 0, 2 * Math.PI);
                         ctx.fillStyle = "#ff3333";
                         ctx.fill();
 
-                        // 座標を割合（0.0〜1.0）に変換してPCに送信
                         const ratioX = ballX / canvas.width;
                         const ratioY = ballY / canvas.height;
 
@@ -203,7 +202,6 @@
                         }
                     }
                 }
-                // ループ処理
                 requestAnimationFrame(processFrame);
             }
             requestAnimationFrame(processFrame);
