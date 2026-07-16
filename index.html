@@ -2,209 +2,282 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ABS カメラ送信機</title>
+    <title>ABS プロ・ビデオ判定システム</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
-            background-color: #222;
+            background-color: #111;
             color: white;
-            text-align: center;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             margin: 0;
-            overflow: hidden;
-            height: 100vh;
+            padding: 20px;
+            display: flex;
+            flex-direction: row;
+            height: 95vh;
         }
-        #container {
+        /* 左側：設定パネル */
+        #setup-panel {
+            width: 320px;
+            background-color: #222;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+        }
+        /* 右側：メインモニター */
+        #monitor {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        h2 { margin: 0 0 10px 0; font-size: 20px; color: #00ffff; border-bottom: 2px solid #00ffff; padding-bottom: 5px; }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label { font-size: 14px; color: #ccc; }
+        input[type="number"], input[type="range"] {
+            padding: 8px;
+            background-color: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
+        }
+        .id-display {
+            font-size: 32px;
+            font-weight: bold;
+            color: #ffcc00;
+            text-align: center;
+            background-color: #111;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        /* 映像コンテナ（比率3:4） */
+        #strike-zone-container {
+            width: 450px;
+            height: 600px;
+            border: 3px dashed #444;
             position: relative;
-            width: 100vw;
-            height: 70vh;
-            background-color: #000;
+            background-color: #151515;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            overflow: hidden; /* はみ出た映像をカット */
         }
-        video, canvas {
+        /* 【追加】背景にiPhoneのカメラ映像を重ねる */
+        #bg-video {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: contain;
+            object-fit: fill; /* 画面サイズに強制フィットさせて座標ズレを防ぐ */
+            z-index: 1; /* 一番後ろ */
         }
-        #controls {
-            padding: 15px;
-            height: 30vh;
+        /* 動的に動くストライクゾーン */
+        #dynamic-zone {
+            position: absolute;
+            border: 4px solid #fff;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+            background-color: rgba(255, 255, 255, 0.05);
             box-sizing: border-box;
-            background-color: #1a1a1a;
+            z-index: 2; /* 映像の上 */
         }
-        input {
-            padding: 12px;
-            font-size: 18px;
-            border-radius: 8px;
-            border: 1px solid #444;
-            background-color: #333;
-            color: white;
-            width: 50%;
-            text-align: center;
-            margin-right: 8px;
+        /* ボールのドット */
+        #ball-dot {
+            width: 24px;
+            height: 24px;
+            background-color: #ffff00;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            position: absolute;
+            display: none;
+            box-shadow: 0 0 15px #ffff00;
+            z-index: 3; /* 一番手前 */
         }
-        input::-webkit-outer-spin-button,
-        input::-webkit-inner-spin-button {
-            -webkit-appearance: none;
-            margin: 0;
+        #result-display {
+            display: flex;
+            gap: 40px;
+            margin-top: 20px;
+            align-items: center;
         }
-        button {
-            padding: 12px 24px;
-            font-size: 18px;
-            background-color: #007aff;
-            color: white;
-            border: none;
-            border-radius: 8px;
+        #result-text {
+            font-size: 80px;
             font-weight: bold;
+            text-shadow: 0 0 15px rgba(0,0,0,0.8);
         }
-        button:active {
-            background-color: #0056b3;
+        #speed-text {
+            font-size: 60px;
+            font-weight: bold;
+            color: #00ffcc;
+            font-family: 'Impact', sans-serif;
         }
-        #status {
-            color: #ffcc00;
-            margin: 10px 0;
-            font-size: 14px;
-            font-weight: 500;
-        }
+        .strike { color: #ff3333; text-shadow: 0 0 20px #ff3333 !important; }
+        .ball { color: #33ff33; text-shadow: 0 0 20px #33ff33 !important; }
     </style>
 </head>
 <body>
-    <div id="container">
-        <video id="video" autoplay playsinline muted></video>
-        <canvas id="canvas"></canvas>
+
+    <div id="setup-panel">
+        <h2>① 接続設定</h2>
+        <div class="id-display" id="my-id">----</div>
+        <p style="font-size:12px; color:#aaa; margin:0;">上記4桁をiPhoneに入力</p>
+
+        <h2>② グラウンド設定</h2>
+        <div class="control-group">
+            <label>投手マウンド〜本塁の距離 (m)</label>
+            <input type="number" id="pitch-dist" value="18.44" step="0.1">
+        </div>
+        <div class="control-group">
+            <label>ホームベースの横幅 (cm)</label>
+            <input type="number" id="base-width" value="43.2" step="0.1">
+        </div>
+
+        <h2>③ ストライクゾーン位置微調整</h2>
+        <p style="font-size:12px; color:#aaa; margin:0;">背景の映像を見ながら、実際のベースとバッターの胸〜膝に枠を合わせてください。</p>
+        <div class="control-group">
+            <label>左右幅 (左端〜右端)</label>
+            <input type="range" id="zone-left" min="0" max="100" value="25">
+            <input type="range" id="zone-right" min="0" max="100" value="75">
+        </div>
+        <div class="control-group">
+            <label>高低幅 (下端〜上端)</label>
+            <input type="range" id="zone-bottom" min="0" max="100" value="75">
+            <input type="range" id="zone-top" min="0" max="100" value="25">
+        </div>
     </div>
 
-    <div id="controls">
-        <input type="number" id="pc-id" pattern="[0-9]*" inputmode="numeric" placeholder="4桁のコード">
-        <button id="connect-btn">接続</button>
-        <p id="status">カメラを起動中...</p>
+    <div id="monitor">
+        <div id="strike-zone-container">
+            <video id="bg-video" autoplay playsinline muted></video>
+            <div id="dynamic-zone"></div>
+            <div id="ball-dot"></div>
+        </div>
+        <div id="result-display">
+            <div id="result-text" style="color: #666;">WAITING...</div>
+            <div id="speed-text">-- <span style="font-size:24px;">km/h</span></div>
+        </div>
     </div>
 
     <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const statusText = document.getElementById('status');
-        
-        let peer = new Peer();
-        let conn = null;
-        let localStream = null; // 【追加】映像ストリームを保存しておく変数
+        const randomNum = Math.floor(1000 + Math.random() * 9000); 
+        const myCustomId = `abs-${randomNum}`;
+        const peer = new Peer(myCustomId);
 
-        // 1. 背面カメラの起動
-        navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: 'environment',
-                frameRate: { ideal: 60 }
-            },
-            audio: false
-        })
-        .then(stream => {
-            video.srcObject = stream;
-            localStream = stream; // 【追加】ストリームを保存
-            
-            video.onloadedmetadata = () => {
-                video.play()
-                .then(() => {
-                    statusText.textContent = "カメラ起動完了。PCの4桁コードを入力して接続してください。";
-                })
-                .catch(err => {
-                    statusText.textContent = "タップしてカメラを再生してください。";
-                    document.body.addEventListener('click', () => {
-                        video.play();
-                        statusText.textContent = "カメラ映像を再生中...";
-                    }, { once: true });
-                });
-            };
-        })
-        .catch(err => {
-            alert("カメラの起動に失敗しました。カメラの使用を許可してください: " + err);
+        const ballDot = document.getElementById('ball-dot');
+        const resultText = document.getElementById('result-text');
+        const speedText = document.getElementById('speed-text');
+        const dynamicZone = document.getElementById('dynamic-zone');
+        const bgVideo = document.getElementById('bg-video');
+
+        const sLeft = document.getElementById('zone-left');
+        const sRight = document.getElementById('zone-right');
+        const sTop = document.getElementById('zone-top');
+        const sBottom = document.getElementById('zone-bottom');
+
+        let pitchStartTime = 0;
+        let isPitching = false;
+
+        peer.on('open', (id) => {
+            document.getElementById('my-id').textContent = randomNum;
         });
 
-        // PCへの接続処理
-        document.getElementById('connect-btn').onclick = () => {
-            const inputNum = document.getElementById('pc-id').value;
-            
-            if(!inputNum || inputNum.length !== 4) {
-                alert("4桁の正しい数字を入力してください。");
-                return;
-            }
-            
-            const pcId = `abs-${inputNum}`; 
-            statusText.textContent = "接続しています...";
-            
-            // 1. データの接続 (球の座標などの配信用)
-            conn = peer.connect(pcId);
-            
-            conn.on('open', () => {
-                statusText.textContent = "PCに接続成功！カメラ映像を送信します...";
-                
-                // 2. 【追加】映像ストリームの接続 (ビデオ通話を開始して映像をPCに送る)
-                if (localStream) {
-                    peer.call(pcId, localStream);
-                }
-                
-                startTracking();
+        // iPhoneからカメラ映像（ストリーム）が届いたときの処理
+        peer.on('call', (call) => {
+            call.answer(); // 通話に応答
+            call.on('stream', (remoteStream) => {
+                // 受信した映像をビデオ要素にセットして再生
+                bgVideo.srcObject = remoteStream;
+                bgVideo.play().catch(e => console.log("Video play error:", e));
             });
+        });
 
-            conn.on('close', () => {
-                statusText.textContent = "切断されました。再入力してください。";
-            });
-        };
+        // ストライクゾーン枠の描画更新
+        function updateZoneDrawing() {
+            const containerW = 450;
+            const containerH = 600;
 
-        // 2. 黄色いボールの自動スキャンと座標送信
-        function startTracking() {
-            function processFrame() {
-                if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    
-                    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const data = frame.data;
-                    
-                    let sumX = 0;
-                    let sumY = 0;
-                    let count = 0;
+            const leftPercent = sLeft.value / 100;
+            const rightPercent = sRight.value / 100;
+            const topPercent = sTop.value / 100;
+            const bottomPercent = sBottom.value / 100;
 
-                    for (let y = 0; y < canvas.height; y += 4) {
-                        for (let x = 0; x < canvas.width; x += 4) {
-                            const index = (y * canvas.width + x) * 4;
-                            const r = data[index];
-                            const g = data[index + 1];
-                            const b = data[index + 2];
+            const width = (rightPercent - leftPercent) * containerW;
+            const height = (bottomPercent - topPercent) * containerH;
 
-                            if (r > 130 && g > 130 && b < 80 && (r - b) > 50 && (g - b) > 50) {
-                                sumX += x;
-                                sumY += y;
-                                count++;
-                            }
-                        }
-                    }
+            dynamicZone.style.left = `${leftPercent * containerW}px`;
+            dynamicZone.style.top = `${topPercent * containerH}px`;
+            dynamicZone.style.width = `${width}px`;
+            dynamicZone.style.height = `${height}px`;
+        }
 
-                    if (count > 15) {
-                        const ballX = sumX / count;
-                        const ballY = sumY / count;
+        [sLeft, sRight, sTop, sBottom].forEach(slider => {
+            slider.addEventListener('input', updateZoneDrawing);
+        });
+        updateZoneDrawing();
 
-                        ctx.beginPath();
-                        ctx.arc(ballX, ballY, 15, 0, 2 * Math.PI);
-                        ctx.fillStyle = "#ff3333";
-                        ctx.fill();
+        peer.on('connection', (conn) => {
+            resultText.textContent = "READY";
+            resultText.style.color = "#00ffff";
+            
+            conn.on('data', (data) => {
+                const containerW = 450;
+                const containerH = 600;
 
-                        const ratioX = ballX / canvas.width;
-                        const ratioY = ballY / canvas.height;
+                const x = data.x * containerW;
+                const y = data.y * containerH;
 
-                        if (conn && conn.open) {
-                            conn.send({ x: ratioX, y: ratioY });
-                        }
-                    }
+                ballDot.style.left = `${x - 12}px`; // ドットサイズに合わせて補正
+                ballDot.style.top = `${y - 12}px`;
+                ballDot.style.display = 'block';
+
+                // 簡易球速測定
+                if (!isPitching && data.y < 0.4) {
+                    pitchStartTime = performance.now();
+                    isPitching = true;
                 }
-                requestAnimationFrame(processFrame);
-            }
-            requestAnimationFrame(processFrame);
+
+                if (isPitching && data.y > 0.75) {
+                    const durationMs = performance.now() - pitchStartTime;
+                    const durationSec = durationMs / 1000;
+                    const distance = parseFloat(document.getElementById('pitch-dist').value);
+                    const speedMPS = distance / durationSec;
+                    const speedKMH = Math.round(speedMPS * 3.6);
+
+                    if (speedKMH > 30 && speedKMH < 170) {
+                        speedText.innerHTML = `${speedKMH} <span style="font-size:24px;">km/h</span>`;
+                    }
+                    isPitching = false;
+                }
+
+                // 判定処理
+                const leftLimit = sLeft.value / 100;
+                const rightLimit = sRight.value / 100;
+                const topLimit = sTop.value / 100;
+                const bottomLimit = sBottom.value / 100;
+
+                if (data.x >= leftLimit && data.x <= rightLimit && data.y >= topLimit && data.y <= bottomLimit) {
+                    resultText.textContent = "STRIKE!";
+                    resultText.className = "strike";
+                    speak("ストライク！");
+                } else {
+                    resultText.textContent = "BALL";
+                    resultText.className = "ball";
+                    speak("ボール");
+                }
+            });
+        });
+
+        function speak(text) {
+            speechSynthesis.cancel();
+            const uttr = new SpeechSynthesisUtterance(text);
+            uttr.lang = "ja-JP";
+            uttr.rate = 1.3;
+            speechSynthesis.speak(uttr);
         }
     </script>
 </body>
