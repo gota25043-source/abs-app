@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>ABS 判定モニター</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            background-color: #111;
+            color: white;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            text-align: center;
+            overflow: hidden;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .info {
+            color: #888;
+            font-size: 18px;
+            margin: 5px 0;
+        }
+        .id-display {
+            color: #ffcc00;
+            font-size: 42px;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+        #strike-zone {
+            width: 400px;
+            height: 500px;
+            border: 5px solid white;
+            margin: 20px auto;
+            position: relative;
+            background-color: #222;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+        #ball-dot {
+            width: 30px;
+            height: 30px;
+            background-color: #ffff00;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            position: absolute;
+            display: none;
+            box-shadow: 0 0 15px #ffff00;
+            transition: all 0.05s ease-out;
+        }
+        #result-text {
+            font-size: 80px;
+            font-weight: bold;
+            margin-top: 15px;
+            text-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        .waiting { color: #888; }
+        .strike { color: #ff3333; text-shadow: 0 0 20px #ff3333; }
+        .ball { color: #33ff33; text-shadow: 0 0 20px #33ff33; }
+    </style>
+</head>
+<body>
+    <h1>ABS 判定システム</h1>
+    <p class="info">iPhoneに入力する4桁コード:</p>
+    <div id="my-id" class="id-display">接続中...</div>
+
+    <div id="strike-zone">
+        <div id="ball-dot"></div>
+    </div>
+    <div id="result-text" class="waiting">WAITING...</div>
+
+    <script>
+        // 1000〜9999のランダムな4桁の数字を生成
+        const randomNum = Math.floor(1000 + Math.random() * 9000); 
+        // IDが他者と被るのを防ぐため、内部用の合言葉「abs-」を頭に付与
+        const myCustomId = `abs-${randomNum}`;
+
+        // ピア接続を初期化
+        const peer = new Peer(myCustomId);
+        const ballDot = document.getElementById('ball-dot');
+        const resultText = document.getElementById('result-text');
+
+        peer.on('open', (id) => {
+            // 画面には分かりやすく4桁の数字だけを表示
+            document.getElementById('my-id').textContent = randomNum;
+        });
+
+        // iPhoneが接続してきたときの処理
+        peer.on('connection', (conn) => {
+            resultText.textContent = "READY";
+            resultText.style.color = "#00ffff";
+            
+            conn.on('data', (data) => {
+                // data = { x: 0.0〜1.0, y: 0.0〜1.0 }
+                const x = data.x * 400; // 横幅400pxにスケール合わせ
+                const y = data.y * 500; // 縦幅500pxにスケール合わせ
+
+                // ボールの位置を更新
+                ballDot.style.left = `${x - 15}px`; // ドットの中心に調整
+                ballDot.style.top = `${y - 15}px`;
+                ballDot.style.display = 'block';
+
+                // ストライクゾーン判定（画面中央の横25%〜75%、縦25%〜75%の範囲内）
+                if (data.x >= 0.25 && data.x <= 0.75 && data.y >= 0.25 && data.y <= 0.75) {
+                    resultText.textContent = "STRIKE!";
+                    resultText.className = "strike";
+                    speak("ストライク！");
+                } else {
+                    resultText.textContent = "BALL";
+                    resultText.className = "ball";
+                    speak("ボール");
+                }
+            });
+        });
+
+        // 音声読み上げ機能
+        function speak(text) {
+            // 前の発話をキャンセルして最新の声を優先
+            speechSynthesis.cancel();
+            const uttr = new SpeechSynthesisUtterance(text);
+            uttr.lang = "ja-JP";
+            uttr.rate = 1.2; // 少し早口で喋らせて審判らしさを演出
+            speechSynthesis.speak(uttr);
+        }
+    </script>
+</body>
+</html>
