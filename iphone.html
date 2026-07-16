@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ABS 動体検知送信機</title>
+    <title>ABS 3D進撃検知送信機</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
@@ -54,14 +54,14 @@
         button {
             padding: 12px 24px;
             font-size: 18px;
-            background-color: #30d158; /* 成功を祈ってグリーンに */
+            background-color: #ff9500; /* 進撃検知はオレンジボタンに！ */
             color: white;
             border: none;
             border-radius: 8px;
             font-weight: bold;
         }
         button:active {
-            background-color: #249d41;
+            background-color: #cc7600;
         }
         #status {
             color: #ffcc00;
@@ -97,7 +97,7 @@
         navigator.mediaDevices.getUserMedia({
             video: {
                 facingMode: 'environment',
-                frameRate: { ideal: 60 } // ボールの高速移動を捉えるため60fpsを要求
+                frameRate: { ideal: 60 } // ボールを捉えるために60fps必須
             },
             audio: false
         })
@@ -123,7 +123,7 @@
             alert("カメラ起動失敗: " + err);
         });
 
-        // PCへの接続処理
+        // PCへの接続
         document.getElementById('connect-btn').onclick = () => {
             const inputNum = document.getElementById('pc-id').value;
             if(!inputNum || inputNum.length !== 4) {
@@ -136,9 +136,9 @@
             conn = peer.connect(pcId);
             
             conn.on('open', () => {
-                statusText.textContent = "接続成功！【動体検知モード】で作動中。";
+                statusText.textContent = "接続成功！【3D進撃検知モード】で作動中。";
                 if (localStream) {
-                    peer.call(pcId, localStream); // PCにカメラ映像を送信
+                    peer.call(pcId, localStream);
                 }
                 startMotionTracking();
             });
@@ -148,22 +148,21 @@
             });
         };
 
-        // 2. 超高速・フレーム間差分（動体検知）スキャン
+        // 2. 3D進撃検知（奥行きトラッキング）スキャン
         function startMotionTracking() {
-            let prevFrameData = null; // 1つ前のフレームのピクセルデータを保存する変数
+            let prevFrameData = null;
+            let trackingHistory = []; // 動体の軌跡を記憶するキュー
 
             function processFrame() {
                 if (video.readyState === video.HAVE_ENOUGH_DATA) {
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                     
-                    // 現在の映像をキャンバスに描画
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                     
                     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const currData = frame.data; // 現在のピクセル配列(R,G,B,A, R,G,B,A...)
+                    const currData = frame.data;
                     
-                    // 最初の1回目は、1つ前のフレームがないので保存だけしてスキップ
                     if (!prevFrameData || prevFrameData.length !== currData.length) {
                         prevFrameData = new Uint8ClampedArray(currData.length);
                         prevFrameData.set(currData);
@@ -180,13 +179,11 @@
                         for (let x = 0; x < canvas.width; x += 4) {
                             const idx = (y * canvas.width + x) * 4;
 
-                            // 「現在の色」と「1フレーム前の色」の差の絶対値を計算
                             const rDiff = Math.abs(currData[idx] - prevFrameData[idx]);
                             const gDiff = Math.abs(currData[idx+1] - prevFrameData[idx+1]);
                             const bDiff = Math.abs(currData[idx+2] - prevFrameData[idx+2]);
 
-                            // 変化が一定値（閾値）より大きければ「動いた！」とみなす
-                            if (rDiff + gDiff + bDiff > 70) { 
+                            if (rDiff + gDiff + bDiff > 75) { // 動きの感度
                                 sumX += x;
                                 sumY += y;
                                 count++;
@@ -194,29 +191,61 @@
                         }
                     }
 
-                    // 【超重要】ノイズフィルター
-                    // 動いたピクセル数が「小さすぎず（ノイズ対策）」「大きすぎない（カメラ手ブレ対策）」場合のみボールと判定
-                    // ボールが通ると数十〜数百ピクセルが動くため、この範囲内だけを狙う
-                    if (count > 8 && count < 600) {
+                    const now = performance.now();
+
+                    // 何かが動いた場合、一旦そのデータを記録
+                    if (count > 5 && count < 600) { 
                         const ballX = sumX / count;
                         const ballY = sumY / count;
 
-                        // iPhoneの画面に検知結果の緑丸を描く
-                        ctx.beginPath();
-                        ctx.arc(ballX, ballY, 15, 0, 2 * Math.PI);
-                        ctx.fillStyle = "#30d158"; // 動体検知は緑色のターゲットマーク
-                        ctx.fill();
+                        trackingHistory.push({
+                            x: ballX,
+                            y: ballY,
+                            size: count, // ピクセル数＝ボールの見かけの大きさ
+                            time: now
+                        });
 
-                        // 座標をPCに送信
-                        const ratioX = ballX / canvas.width;
-                        const ratioY = ballY / canvas.height;
-
-                        if (conn && conn.open) {
-                            conn.send({ x: ratioX, y: ratioY });
+                        // 過去10フレーム分（約0.16秒）の動きだけを保持
+                        if (trackingHistory.length > 10) {
+                            trackingHistory.shift();
                         }
+
+                        // --- 🚀 【核心】「迫りくるボール」の判定ロジック ---
+                        if (trackingHistory.length >= 3) {
+                            const first = trackingHistory[0];
+                            const last = trackingHistory[trackingHistory.length - 1];
+
+                            // ① Y軸の移動：奥（上）から手前（下）に落ちてきているか
+                            const isMovingForward = (last.y - first.y) > 20;
+
+                            // ② サイズ（面積）の変化：手前に迫るにつれて大きくなっているか
+                            // （奥の時は小さく、手前に来るとピクセル数が1.3倍以上に急増する）
+                            const isGrowing = last.size > (first.size * 1.3);
+
+                            // ③ 時間：一瞬の出来事か（0.3秒以内）
+                            const isPitchSpeed = (last.time - first.time) < 300;
+
+                            if (isMovingForward && isGrowing && isPitchSpeed) {
+                                // 迫りくるボールと認定！画面にオレンジの円を描画
+                                ctx.beginPath();
+                                ctx.arc(ballX, ballY, 20, 0, 2 * Math.PI);
+                                ctx.fillStyle = "#ff9500";
+                                ctx.fill();
+
+                                // 座標をPCに送信
+                                const ratioX = ballX / canvas.width;
+                                const ratioY = ballY / canvas.height;
+
+                                if (conn && conn.open) {
+                                    conn.send({ x: ratioX, y: ratioY });
+                                }
+                            }
+                        }
+                    } else {
+                        // 動きが止まったら履歴をゆっくりクリア
+                        if (trackingHistory.length > 0) trackingHistory.shift();
                     }
 
-                    // 次の比較のために、今のピクセルデータを保存
                     prevFrameData.set(currData);
                 }
                 requestAnimationFrame(processFrame);
