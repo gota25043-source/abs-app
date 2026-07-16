@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ABS カメラ送信機</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            background-color: #222;
+            color: white;
+            text-align: center;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            overflow: hidden;
+            height: 100vh;
+        }
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 70vh;
+            background-color: #000;
+        }
+        video, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        #controls {
+            padding: 15px;
+            height: 30vh;
+            box-sizing: border-box;
+            background-color: #1a1a1a;
+        }
+        input {
+            padding: 12px;
+            font-size: 18px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            background-color: #333;
+            color: white;
+            width: 50%;
+            text-align: center;
+            margin-right: 8px;
+        }
+        /* 数字入力時にiOSでテンキーを強制表示させる */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 18px;
+            background-color: #007aff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        button:active {
+            background-color: #0056b3;
+        }
+        #status {
+            color: #ffcc00;
+            margin: 10px 0;
+            font-size: 14px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <div id="controls">
+        <input type="number" id="pc-id" pattern="[0-9]*" inputmode="numeric" placeholder="4桁のコード">
+        <button id="connect-btn">接続</button>
+        <p id="status">カメラを起動中...</p>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const statusText = document.getElementById('status');
+        
+        let peer = new Peer();
+        let conn = null;
+
+        // 1. 背面カメラの起動（iOS対策の自動再生処理入り）
+        navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: 'environment',
+                frameRate: { ideal: 60 }
+            },
+            audio: false
+        })
+        .then(stream => {
+            video.srcObject = stream;
+            
+            // iOSの動画ストップ（静止画化）対策
+            video.onloadedmetadata = () => {
+                video.play()
+                .then(() => {
+                    statusText.textContent = "カメラ起動完了。PCの4桁コードを入力して接続してください。";
+                })
+                .catch(err => {
+                    // 自動再生がiOSにブロックされた場合は、画面タップで強制再生させる
+                    statusText.textContent = "タップしてカメラを再生してください。";
+                    document.body.addEventListener('click', () => {
+                        video.play();
+                        statusText.textContent = "カメラ映像を再生中...";
+                    }, { once: true });
+                });
+            };
+        })
+        .catch(err => {
+            alert("カメラの起動に失敗しました。カメラの使用を許可してください: " + err);
+        });
+
+        // PCへの接続処理
+        document.getElementById('connect-btn').onclick = () => {
+            const inputNum = document.getElementById('pc-id').value;
+            
+            if(!inputNum || inputNum.length !== 4) {
+                alert("4桁の正しい数字を入力してください。");
+                return;
+            }
+            
+            // 4桁の数字の頭に自動で「abs-」をつけてPCを探す
+            const pcId = `abs-${inputNum}`; 
+            
+            statusText.textContent = "接続しています...";
+            conn = peer.connect(pcId);
+            
+            conn.on('open', () => {
+                statusText.textContent = "PCに接続成功！ボール追跡を開始します。";
+                startTracking();
+            });
+
+            conn.on('close', () => {
+                statusText.textContent = "切断されました。再入力してください。";
+            });
+        };
+
+        // 2. 黄色いボールの自動スキャンと座標送信
+        function startTracking() {
+            function processFrame() {
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    
+                    // カメラの映像フレームをキャンバスに描画
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = frame.data;
+                    
+                    let sumX = 0;
+                    let sumY = 0;
+                    let count = 0;
+
+                    // 高速化のため、4ピクセルおきにスキャン
+                    for (let y = 0; y < canvas.height; y += 4) {
+                        for (let x = 0; x < canvas.width; x += 4) {
+                            const index = (y * canvas.width + x) * 4;
+                            const r = data[index];
+                            const g = data[index + 1];
+                            const b = data[index + 2];
+
+                            // 黄色の検出条件（赤と緑が強く、青が極端に低いピクセル）
+                            if (r > 130 && g > 130 && b < 80 && (r - b) > 50 && (g - b) > 50) {
+                                sumX += x;
+                                sumY += y;
+                                count++;
+                            }
+                        }
+                    }
+
+                    // 黄色のカタマリが一定サイズ以上検知できた場合
+                    if (count > 15) {
+                        const ballX = sumX / count;
+                        const ballY = sumY / count;
+
+                        // iPhoneの画面にターゲット検知の赤丸を重ねる
+                        ctx.beginPath();
+                        ctx.arc(ballX, ballY, 15, 0, 2 * Math.PI);
+                        ctx.fillStyle = "#ff3333";
+                        ctx.fill();
+
+                        // 座標を割合（0.0〜1.0）に変換してPCに送信
+                        const ratioX = ballX / canvas.width;
+                        const ratioY = ballY / canvas.height;
+
+                        if (conn && conn.open) {
+                            conn.send({ x: ratioX, y: ratioY });
+                        }
+                    }
+                }
+                // ループ処理
+                requestAnimationFrame(processFrame);
+            }
+            requestAnimationFrame(processFrame);
+        }
+    </script>
+</body>
+</html>
