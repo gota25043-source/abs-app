@@ -2,41 +2,77 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>ABS 判定モニター</title>
+    <title>ABS プロ・判定＆計測システム</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
             background-color: #111;
             color: white;
-            font-family: 'Helvetica Neue', Arial, sans-serif;
-            text-align: center;
-            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             margin: 0;
             padding: 20px;
+            display: flex;
+            flex-direction: row;
+            height: 95vh;
         }
-        h1 {
-            margin-bottom: 10px;
-            font-size: 28px;
+        /* 左側：設定パネル */
+        #setup-panel {
+            width: 320px;
+            background-color: #222;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
         }
-        .info {
-            color: #888;
-            font-size: 18px;
-            margin: 5px 0;
+        /* 右側：メインモニター */
+        #monitor {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        h2 { margin: 0 0 10px 0; font-size: 20px; color: #00ffff; border-bottom: 2px solid #00ffff; padding-bottom: 5px; }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label { font-size: 14px; color: #ccc; }
+        input[type="number"], input[type="range"] {
+            padding: 8px;
+            background-color: #333;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
         }
         .id-display {
-            color: #ffcc00;
-            font-size: 42px;
+            font-size: 32px;
             font-weight: bold;
-            letter-spacing: 2px;
+            color: #ffcc00;
+            text-align: center;
+            background-color: #111;
+            padding: 10px;
+            border-radius: 5px;
         }
-        #strike-zone {
-            width: 400px;
-            height: 500px;
-            border: 5px solid white;
-            margin: 20px auto;
+        #strike-zone-container {
+            width: 500px;
+            height: 600px;
+            border: 3px dashed #444;
             position: relative;
-            background-color: #222;
-            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+            background-color: #151515;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+        }
+        /* スライダーで動的に動くストライクゾーン */
+        #dynamic-zone {
+            position: absolute;
+            border: 5px solid white;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+            background-color: rgba(255,255,255,0.03);
+            box-sizing: border-box;
         }
         #ball-dot {
             width: 30px;
@@ -47,62 +83,170 @@
             position: absolute;
             display: none;
             box-shadow: 0 0 15px #ffff00;
-            transition: all 0.05s ease-out;
+            z-index: 10;
+        }
+        #result-display {
+            display: flex;
+            gap: 40px;
+            margin-top: 20px;
+            align-items: center;
         }
         #result-text {
-            font-size: 80px;
+            font-size: 90px;
             font-weight: bold;
-            margin-top: 15px;
-            text-shadow: 0 0 10px rgba(0,0,0,0.5);
+            text-shadow: 0 0 15px rgba(0,0,0,0.8);
         }
-        .waiting { color: #888; }
-        .strike { color: #ff3333; text-shadow: 0 0 20px #ff3333; }
-        .ball { color: #33ff33; text-shadow: 0 0 20px #33ff33; }
+        #speed-text {
+            font-size: 60px;
+            font-weight: bold;
+            color: #00ffcc;
+            font-family: 'Impact', sans-serif;
+        }
+        .strike { color: #ff3333; text-shadow: 0 0 20px #ff3333 !important; }
+        .ball { color: #33ff33; text-shadow: 0 0 20px #33ff33 !important; }
     </style>
 </head>
 <body>
-    <h1>ABS 判定システム</h1>
-    <p class="info">iPhoneに入力する4桁コード:</p>
-    <div id="my-id" class="id-display">接続中...</div>
 
-    <div id="strike-zone">
-        <div id="ball-dot"></div>
+    <div id="setup-panel">
+        <h2>① 接続設定</h2>
+        <div class="id-display" id="my-id">----</div>
+        <p style="font-size:12px; color:#aaa; margin:0;">上記4桁をiPhoneに入力</p>
+
+        <h2>② グラウンド設定</h2>
+        <div class="control-group">
+            <label>投手マウンド〜本塁の距離 (m)</label>
+            <input type="number" id="pitch-dist" value="18.44" step="0.1">
+        </div>
+        <div class="control-group">
+            <label>ホームベースの横幅 (cm)</label>
+            <input type="number" id="base-width" value="43.2" step="0.1">
+        </div>
+
+        <h2>③ ストライクゾーン位置微調整</h2>
+        <p style="font-size:12px; color:#aaa; margin:0;">画面を見ながら、実際のベースとバッターの身長に合わせて枠を動かしてください。</p>
+        <div class="control-group">
+            <label>ゾーン横幅位置 (左端〜右端)</label>
+            <input type="range" id="zone-left" min="0" max="100" value="25">
+            <input type="range" id="zone-right" min="0" max="100" value="75">
+        </div>
+        <div class="control-group">
+            <label>ゾーン高さ位置 (下端〜上端)</label>
+            <input type="range" id="zone-bottom" min="0" max="100" value="75">
+            <input type="range" id="zone-top" min="0" max="100" value="25">
+        </div>
     </div>
-    <div id="result-text" class="waiting">WAITING...</div>
+
+    <div id="monitor">
+        <div id="strike-zone-container">
+            <div id="dynamic-zone"></div>
+            <div id="ball-dot"></div>
+        </div>
+        <div id="result-display">
+            <div id="result-text" style="color: #666;">WAITING...</div>
+            <div id="speed-text">-- <span style="font-size:24px;">km/h</span></div>
+        </div>
+    </div>
 
     <script>
-        // 1000〜9999のランダムな4桁の数字を生成
         const randomNum = Math.floor(1000 + Math.random() * 9000); 
-        // IDが他者と被るのを防ぐため、内部用の合言葉「abs-」を頭に付与
         const myCustomId = `abs-${randomNum}`;
-
-        // ピア接続を初期化
         const peer = new Peer(myCustomId);
+
         const ballDot = document.getElementById('ball-dot');
         const resultText = document.getElementById('result-text');
+        const speedText = document.getElementById('speed-text');
+        const dynamicZone = document.getElementById('dynamic-zone');
+
+        // スライダー要素の取得
+        const sLeft = document.getElementById('zone-left');
+        const sRight = document.getElementById('zone-right');
+        const sTop = document.getElementById('zone-top');
+        const sBottom = document.getElementById('zone-bottom');
+
+        // 球速計算用の変数
+        let pitchStartTime = 0;
+        let isPitching = false;
 
         peer.on('open', (id) => {
-            // 画面には分かりやすく4桁の数字だけを表示
             document.getElementById('my-id').textContent = randomNum;
         });
 
-        // iPhoneが接続してきたときの処理
+        // ストライクゾーンの画面描画を更新する関数
+        function updateZoneDrawing() {
+            const containerW = 500;
+            const containerH = 600;
+
+            const leftPercent = sLeft.value / 100;
+            const rightPercent = sRight.value / 100;
+            const topPercent = sTop.value / 100;
+            const bottomPercent = sBottom.value / 100;
+
+            const width = (rightPercent - leftPercent) * containerW;
+            const height = (bottomPercent - topPercent) * containerH;
+
+            dynamicZone.style.left = `${leftPercent * containerW}px`;
+            dynamicZone.style.top = `${topPercent * containerH}px`;
+            dynamicZone.style.width = `${width}px`;
+            dynamicZone.style.height = `${height}px`;
+        }
+
+        // スライダーを動かしたときにリアルタイムに枠を更新
+        [sLeft, sRight, sTop, sBottom].forEach(slider => {
+            slider.addEventListener('input', updateZoneDrawing);
+        });
+        updateZoneDrawing(); // 初期描画
+
         peer.on('connection', (conn) => {
             resultText.textContent = "READY";
             resultText.style.color = "#00ffff";
             
             conn.on('data', (data) => {
-                // data = { x: 0.0〜1.0, y: 0.0〜1.0 }
-                const x = data.x * 400; // 横幅400pxにスケール合わせ
-                const y = data.y * 500; // 縦幅500pxにスケール合わせ
+                const containerW = 500;
+                const containerH = 600;
 
-                // ボールの位置を更新
-                ballDot.style.left = `${x - 15}px`; // ドットの中心に調整
+                const x = data.x * containerW;
+                const y = data.y * containerH;
+
+                ballDot.style.left = `${x - 15}px`;
                 ballDot.style.top = `${y - 15}px`;
                 ballDot.style.display = 'block';
 
-                // ストライクゾーン判定（画面中央の横25%〜75%、縦25%〜75%の範囲内）
-                if (data.x >= 0.25 && data.x <= 0.75 && data.y >= 0.25 && data.y <= 0.75) {
+                // --- 1. 簡易球速測定ロジック ---
+                // ボールが画面の上側（マウンド方向）に現れた瞬間をリリースとする
+                if (!isPitching && data.y < 0.4) {
+                    pitchStartTime = performance.now(); // ミリ秒単位の高精度タイマー開始
+                    isPitching = true;
+                }
+
+                // ボールがキャッチャー（画面の下側）に到達した瞬間
+                if (isPitching && data.y > 0.75) {
+                    const durationMs = performance.now() - pitchStartTime; // 投球から捕球までの時間(ms)
+                    const durationSec = durationMs / 1000; // 秒に変換
+
+                    // ユーザーが設定した距離を取得
+                    const distance = parseFloat(document.getElementById('pitch-dist').value);
+
+                    // 速度 (m/s) = 距離 (m) / 時間 (秒)
+                    const speedMPS = distance / durationSec;
+                    // 時速 (km/h) に変換
+                    const speedKMH = Math.round(speedMPS * 3.6);
+
+                    // 異常な値（遅すぎる・速すぎる）を除外して表示
+                    if (speedKMH > 30 && speedKMH < 170) {
+                        speedText.innerHTML = `${speedKMH} <span style="font-size:24px;">km/h</span>`;
+                    }
+                    isPitching = false; // 1投終了
+                }
+
+                // --- 2. ストライク・ボール判定 ---
+                // 現在のスライダー設定値（パーセンテージ）を取得
+                const leftLimit = sLeft.value / 100;
+                const rightLimit = sRight.value / 100;
+                const topLimit = sTop.value / 100;
+                const bottomLimit = sBottom.value / 100;
+
+                if (data.x >= leftLimit && data.x <= rightLimit && data.y >= topLimit && data.y <= bottomLimit) {
                     resultText.textContent = "STRIKE!";
                     resultText.className = "strike";
                     speak("ストライク！");
@@ -114,13 +258,11 @@
             });
         });
 
-        // 音声読み上げ機能
         function speak(text) {
-            // 前の発話をキャンセルして最新の声を優先
             speechSynthesis.cancel();
             const uttr = new SpeechSynthesisUtterance(text);
             uttr.lang = "ja-JP";
-            uttr.rate = 1.2; // 少し早口で喋らせて審判らしさを演出
+            uttr.rate = 1.3;
             speechSynthesis.speak(uttr);
         }
     </script>
