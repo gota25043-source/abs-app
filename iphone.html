@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ABS カメラ送信機</title>
+    <title>ABS 動体検知送信機</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
@@ -54,14 +54,14 @@
         button {
             padding: 12px 24px;
             font-size: 18px;
-            background-color: #007aff;
+            background-color: #30d158; /* 成功を祈ってグリーンに */
             color: white;
             border: none;
             border-radius: 8px;
             font-weight: bold;
         }
         button:active {
-            background-color: #0056b3;
+            background-color: #249d41;
         }
         #status {
             color: #ffcc00;
@@ -91,93 +91,102 @@
         
         let peer = new Peer();
         let conn = null;
-        let localStream = null; // 【追加】映像ストリームを保存しておく変数
+        let localStream = null;
 
         // 1. 背面カメラの起動
         navigator.mediaDevices.getUserMedia({
             video: {
                 facingMode: 'environment',
-                frameRate: { ideal: 60 }
+                frameRate: { ideal: 60 } // ボールの高速移動を捉えるため60fpsを要求
             },
             audio: false
         })
         .then(stream => {
             video.srcObject = stream;
-            localStream = stream; // 【追加】ストリームを保存
+            localStream = stream;
             
             video.onloadedmetadata = () => {
                 video.play()
                 .then(() => {
-                    statusText.textContent = "カメラ起動完了。PCの4桁コードを入力して接続してください。";
+                    statusText.textContent = "カメラ起動完了。PCと接続してください。";
                 })
                 .catch(err => {
-                    statusText.textContent = "タップしてカメラを再生してください。";
+                    statusText.textContent = "画面をタップして再生してください。";
                     document.body.addEventListener('click', () => {
                         video.play();
-                        statusText.textContent = "カメラ映像を再生中...";
+                        statusText.textContent = "カメラ映像再生中...";
                     }, { once: true });
                 });
             };
         })
         .catch(err => {
-            alert("カメラの起動に失敗しました。カメラの使用を許可してください: " + err);
+            alert("カメラ起動失敗: " + err);
         });
 
         // PCへの接続処理
         document.getElementById('connect-btn').onclick = () => {
             const inputNum = document.getElementById('pc-id').value;
-            
             if(!inputNum || inputNum.length !== 4) {
                 alert("4桁の正しい数字を入力してください。");
                 return;
             }
-            
             const pcId = `abs-${inputNum}`; 
-            statusText.textContent = "接続しています...";
+            statusText.textContent = "接続中...";
             
-            // 1. データの接続 (球の座標などの配信用)
             conn = peer.connect(pcId);
             
             conn.on('open', () => {
-                statusText.textContent = "PCに接続成功！カメラ映像を送信します...";
-                
-                // 2. 【追加】映像ストリームの接続 (ビデオ通話を開始して映像をPCに送る)
+                statusText.textContent = "接続成功！【動体検知モード】で作動中。";
                 if (localStream) {
-                    peer.call(pcId, localStream);
+                    peer.call(pcId, localStream); // PCにカメラ映像を送信
                 }
-                
-                startTracking();
+                startMotionTracking();
             });
 
             conn.on('close', () => {
-                statusText.textContent = "切断されました。再入力してください。";
+                statusText.textContent = "切断されました。";
             });
         };
 
-        // 2. 黄色いボールの自動スキャンと座標送信
-        function startTracking() {
+        // 2. 超高速・フレーム間差分（動体検知）スキャン
+        function startMotionTracking() {
+            let prevFrameData = null; // 1つ前のフレームのピクセルデータを保存する変数
+
             function processFrame() {
                 if (video.readyState === video.HAVE_ENOUGH_DATA) {
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                     
+                    // 現在の映像をキャンバスに描画
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                     
                     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const data = frame.data;
+                    const currData = frame.data; // 現在のピクセル配列(R,G,B,A, R,G,B,A...)
+                    
+                    // 最初の1回目は、1つ前のフレームがないので保存だけしてスキップ
+                    if (!prevFrameData || prevFrameData.length !== currData.length) {
+                        prevFrameData = new Uint8ClampedArray(currData.length);
+                        prevFrameData.set(currData);
+                        requestAnimationFrame(processFrame);
+                        return;
+                    }
                     
                     let sumX = 0;
                     let sumY = 0;
                     let count = 0;
 
+                    // 高速化のため、4ピクセルおきにスキャン
                     for (let y = 0; y < canvas.height; y += 4) {
                         for (let x = 0; x < canvas.width; x += 4) {
-                            const index = (y * canvas.width + x) * 4;
-                            const r = data[index];
-                            const g = data[index + 1];
-                            const b = data[index + 2];
+                            const idx = (y * canvas.width + x) * 4;
 
-                            if (r > 130 && g > 130 && b < 80 && (r - b) > 50 && (g - b) > 50) {
+                            // 「現在の色」と「1フレーム前の色」の差の絶対値を計算
+                            const rDiff = Math.abs(currData[idx] - prevFrameData[idx]);
+                            const gDiff = Math.abs(currData[idx+1] - prevFrameData[idx+1]);
+                            const bDiff = Math.abs(currData[idx+2] - prevFrameData[idx+2]);
+
+                            // 変化が一定値（閾値）より大きければ「動いた！」とみなす
+                            if (rDiff + gDiff + bDiff > 70) { 
                                 sumX += x;
                                 sumY += y;
                                 count++;
@@ -185,15 +194,20 @@
                         }
                     }
 
-                    if (count > 15) {
+                    // 【超重要】ノイズフィルター
+                    // 動いたピクセル数が「小さすぎず（ノイズ対策）」「大きすぎない（カメラ手ブレ対策）」場合のみボールと判定
+                    // ボールが通ると数十〜数百ピクセルが動くため、この範囲内だけを狙う
+                    if (count > 8 && count < 600) {
                         const ballX = sumX / count;
                         const ballY = sumY / count;
 
+                        // iPhoneの画面に検知結果の緑丸を描く
                         ctx.beginPath();
                         ctx.arc(ballX, ballY, 15, 0, 2 * Math.PI);
-                        ctx.fillStyle = "#ff3333";
+                        ctx.fillStyle = "#30d158"; // 動体検知は緑色のターゲットマーク
                         ctx.fill();
 
+                        // 座標をPCに送信
                         const ratioX = ballX / canvas.width;
                         const ratioY = ballY / canvas.height;
 
@@ -201,6 +215,9 @@
                             conn.send({ x: ratioX, y: ratioY });
                         }
                     }
+
+                    // 次の比較のために、今のピクセルデータを保存
+                    prevFrameData.set(currData);
                 }
                 requestAnimationFrame(processFrame);
             }
