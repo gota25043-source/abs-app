@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>ABS プロ・ビデオ判定システム</title>
+    <title>ABS プロ・ビデオ判定システム (ホールド機能搭載)</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
@@ -66,17 +66,16 @@
             position: relative;
             background-color: #151515;
             box-shadow: 0 0 30px rgba(0,0,0,0.8);
-            overflow: hidden; /* はみ出た映像をカット */
+            overflow: hidden;
         }
-        /* 【追加】背景にiPhoneのカメラ映像を重ねる */
         #bg-video {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: fill; /* 画面サイズに強制フィットさせて座標ズレを防ぐ */
-            z-index: 1; /* 一番後ろ */
+            object-fit: fill;
+            z-index: 1;
         }
         /* 動的に動くストライクゾーン */
         #dynamic-zone {
@@ -85,7 +84,7 @@
             box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
             background-color: rgba(255, 255, 255, 0.05);
             box-sizing: border-box;
-            z-index: 2; /* 映像の上 */
+            z-index: 2;
         }
         /* ボールのドット */
         #ball-dot {
@@ -97,7 +96,8 @@
             position: absolute;
             display: none;
             box-shadow: 0 0 15px #ffff00;
-            z-index: 3; /* 一番手前 */
+            z-index: 3;
+            transition: opacity 0.2s; /* 消えるときにふわっと消す */
         }
         #result-display {
             display: flex;
@@ -132,10 +132,6 @@
             <label>投手マウンド〜本塁の距離 (m)</label>
             <input type="number" id="pitch-dist" value="18.44" step="0.1">
         </div>
-        <div class="control-group">
-            <label>ホームベースの横幅 (cm)</label>
-            <input type="number" id="base-width" value="43.2" step="0.1">
-        </div>
 
         <h2>③ ストライクゾーン位置微調整</h2>
         <p style="font-size:12px; color:#aaa; margin:0;">背景の映像を見ながら、実際のベースとバッターの胸〜膝に枠を合わせてください。</p>
@@ -158,7 +154,7 @@
             <div id="ball-dot"></div>
         </div>
         <div id="result-display">
-            <div id="result-text" style="color: #666;">WAITING...</div>
+            <div id="result-text" style="color: #666;">READY</div>
             <div id="speed-text">-- <span style="font-size:24px;">km/h</span></div>
         </div>
     </div>
@@ -179,24 +175,25 @@
         const sTop = document.getElementById('zone-top');
         const sBottom = document.getElementById('zone-bottom');
 
-        let pitchStartTime = 0;
-        let isPitching = false;
+        // 【新常識】投球の全座標を一時保存するリストと、ストップ判定タイマー
+        let pitchCoords = [];
+        let pitchEndTimer = null;
+        let isWaitingForNext = true; // 3秒フリーズ中の連続検知を防ぐフラグ
 
         peer.on('open', (id) => {
             document.getElementById('my-id').textContent = randomNum;
         });
 
-        // iPhoneからカメラ映像（ストリーム）が届いたときの処理
+        // iPhoneの生映像を受信
         peer.on('call', (call) => {
-            call.answer(); // 通話に応答
+            call.answer();
             call.on('stream', (remoteStream) => {
-                // 受信した映像をビデオ要素にセットして再生
                 bgVideo.srcObject = remoteStream;
                 bgVideo.play().catch(e => console.log("Video play error:", e));
             });
         });
 
-        // ストライクゾーン枠の描画更新
+        // ストライクゾーンの枠の描画
         function updateZoneDrawing() {
             const containerW = 450;
             const containerH = 600;
@@ -220,30 +217,63 @@
         });
         updateZoneDrawing();
 
+        // データ受信時の処理
         peer.on('connection', (conn) => {
             resultText.textContent = "READY";
             resultText.style.color = "#00ffff";
             
             conn.on('data', (data) => {
+                if (!isWaitingForNext) return; // フリーズ中のデータは無視
+
                 const containerW = 450;
                 const containerH = 600;
 
+                // 1. 今届いた座標を「時間」と一緒に記録する
+                pitchCoords.push({
+                    x: data.x,
+                    y: data.y,
+                    time: performance.now()
+                });
+
+                // 2. 投げている途中は、うっすら半透明の黄色いドットを動かして表示
                 const x = data.x * containerW;
                 const y = data.y * containerH;
-
-                ballDot.style.left = `${x - 12}px`; // ドットサイズに合わせて補正
+                ballDot.style.left = `${x - 12}px`;
                 ballDot.style.top = `${y - 12}px`;
                 ballDot.style.display = 'block';
+                ballDot.style.opacity = '0.4'; // 飛行中は半透明
 
-                // 簡易球速測定
-                if (!isPitching && data.y < 0.4) {
-                    pitchStartTime = performance.now();
-                    isPitching = true;
-                }
+                // 3. 投球ストップ判定（0.4秒間、新しい座標が届かなかったら「捕球された」とみなす）
+                clearTimeout(pitchEndTimer);
+                pitchEndTimer = setTimeout(() => {
+                    processPitchResult(containerW, containerH);
+                }, 400); 
+            });
+        });
 
-                if (isPitching && data.y > 0.75) {
-                    const durationMs = performance.now() - pitchStartTime;
-                    const durationSec = durationMs / 1000;
+        // 投球結果を確定させて「フリーズ」させる関数
+        function processPitchResult(w, h) {
+            if (pitchCoords.length === 0) return;
+
+            isWaitingForNext = false; // 新しい判定を受け付けないようにロック
+
+            // 投球の最後の1点（キャッチャーミットの手前＝ベース通過点）を取得
+            const finalPoint = pitchCoords[pitchCoords.length - 1];
+
+            // 1. 黄色いドットを「超ハッキリ」フリーズ表示！
+            const finalX = finalPoint.x * w;
+            const finalY = finalPoint.y * h;
+            ballDot.style.left = `${finalX - 12}px`;
+            ballDot.style.top = `${finalY - 12}px`;
+            ballDot.style.opacity = '1.0'; // 完全不透明にして目立たせる
+            ballDot.style.boxShadow = '0 0 20px #ffff00, 0 0 10px #ffffff';
+
+            // 2. 球速（km/h）の計算
+            if (pitchCoords.length >= 2) {
+                const firstPoint = pitchCoords[0];
+                const durationSec = (finalPoint.time - firstPoint.time) / 1000; // 投球にかかった秒数
+
+                if (durationSec > 0.1 && durationSec < 1.5) {
                     const distance = parseFloat(document.getElementById('pitch-dist').value);
                     const speedMPS = distance / durationSec;
                     const speedKMH = Math.round(speedMPS * 3.6);
@@ -251,26 +281,38 @@
                     if (speedKMH > 30 && speedKMH < 170) {
                         speedText.innerHTML = `${speedKMH} <span style="font-size:24px;">km/h</span>`;
                     }
-                    isPitching = false;
                 }
+            }
 
-                // 判定処理
-                const leftLimit = sLeft.value / 100;
-                const rightLimit = sRight.value / 100;
-                const topLimit = sTop.value / 100;
-                const bottomLimit = sBottom.value / 100;
+            // 3. ストライク・ボールの一発判定
+            const leftLimit = sLeft.value / 100;
+            const rightLimit = sRight.value / 100;
+            const topLimit = sTop.value / 100;
+            const bottomLimit = sBottom.value / 100;
 
-                if (data.x >= leftLimit && data.x <= rightLimit && data.y >= topLimit && data.y <= bottomLimit) {
-                    resultText.textContent = "STRIKE!";
-                    resultText.className = "strike";
-                    speak("ストライク！");
-                } else {
-                    resultText.textContent = "BALL";
-                    resultText.className = "ball";
-                    speak("ボール");
-                }
-            });
-        });
+            if (finalPoint.x >= leftLimit && finalPoint.x <= rightLimit && finalPoint.y >= topLimit && finalPoint.y <= bottomLimit) {
+                resultText.textContent = "STRIKE!";
+                resultText.className = "strike";
+                speak("ストライク！");
+            } else {
+                resultText.textContent = "BALL";
+                resultText.className = "ball";
+                speak("ボール");
+            }
+
+            // 4. 3秒後に画面をリセットして次の投球に備える
+            setTimeout(() => {
+                ballDot.style.display = 'none';
+                ballDot.style.boxShadow = 'none';
+                resultText.textContent = "READY";
+                resultText.className = "";
+                resultText.style.color = "#00ffff";
+                
+                // データリセット
+                pitchCoords = [];
+                isWaitingForNext = true; // ロック解除
+            }, 3000);
+        }
 
         function speak(text) {
             speechSynthesis.cancel();
