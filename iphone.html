@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ABS ノイズ極限カット送信機</title>
+    <title>ABS 完全自動・軌道一貫性フィルタ</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
@@ -49,7 +49,7 @@
         button {
             padding: 12px 24px;
             font-size: 18px;
-            background-color: #ff3b30; /* 闘志のレッド */
+            background-color: #30d158;
             color: white;
             border: none;
             border-radius: 8px;
@@ -58,7 +58,8 @@
         #status {
             color: #ffcc00;
             margin: 10px 0;
-            font-size: 14px;
+            font-size: 15px;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -96,9 +97,9 @@
             localStream = stream;
             video.onloadedmetadata = () => {
                 video.play()
-                .then(() => { statusText.textContent = "カメラ起動完了。PCに接続してください。"; })
+                .then(() => { statusText.textContent = "カメラ起動完了。PCと接続してください。"; })
                 .catch(err => {
-                    statusText.textContent = "画面をタップして再生してください。";
+                    statusText.textContent = "タップして再生してください。";
                     document.body.addEventListener('click', () => { video.play(); }, { once: true });
                 });
             };
@@ -116,15 +117,16 @@
             
             conn = peer.connect(pcId);
             conn.on('open', () => {
-                statusText.textContent = "接続成功！【超強力ノイズカットモード】";
+                statusText.textContent = "接続成功！【全自動・軌道ベクトル判定モード】";
+                statusText.style.color = "#30d158";
                 if (localStream) peer.call(pcId, localStream);
-                startAdvancedTracking();
+                startVectorTracking();
             });
         };
 
-        function startAdvancedTracking() {
+        function startVectorTracking() {
             let prevFrameData = null;
-            let trackingHistory = [];
+            let trackingHistory = []; // 過去数フレームのボール候補座標をストック
 
             function processFrame() {
                 if (video.readyState === video.HAVE_ENOUGH_DATA) {
@@ -145,16 +147,14 @@
                     let sumX = 0;
                     let sumY = 0;
                     let ballPixelCount = 0;
-                    let totalMovedPixels = 0; // 画面全体で動いた総ピクセル数（ノイズ判定用）
 
-                    // 【対策②】ROI（検知エリア）を画面の中央付近のみに制限
-                    // 左右の端15%ずつ、上下の端15%ずつを無視する
+                    // ROI（画面の上下左右の端15%を除外して無駄な動きをカット）
                     const minX = Math.floor(canvas.width * 0.15);
                     const maxX = Math.floor(canvas.width * 0.85);
                     const minY = Math.floor(canvas.height * 0.15);
                     const maxY = Math.floor(canvas.height * 0.85);
 
-                    // 高速化スキャン（4px飛ばし）
+                    // 4px飛ばしで高速スキャン
                     for (let y = 0; y < canvas.height; y += 4) {
                         for (let x = 0; x < canvas.width; x += 4) {
                             const idx = (y * canvas.width + x) * 4;
@@ -163,81 +163,81 @@
                             const gDiff = Math.abs(currData[idx+1] - prevFrameData[idx+1]);
                             const bDiff = Math.abs(currData[idx+2] - prevFrameData[idx+2]);
 
-                            // 動き検知の閾値
+                            // 一定以上の色変化があり、かつROI（中央エリア）の中だけを見る
                             if (rDiff + gDiff + bDiff > 80) {
-                                totalMovedPixels++; // 画面のどこであれ、動いたピクセルをすべてカウント
-
-                                // 【対策③】ROIエリア内、かつ「白っぽい（RGBの値がすべて一定以上）」ピクセルのみをボール候補とする
                                 if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
-                                    const r = currData[idx];
-                                    const g = currData[idx+1];
-                                    const b = currData[idx+2];
-                                    
-                                    // 白いボール候補（輝度がそこそこ高いもの）
-                                    if (r > 100 && g > 100 && b > 100) {
-                                        sumX += x;
-                                        sumY += y;
-                                        ballPixelCount++;
-                                    }
+                                    sumX += x;
+                                    sumY += y;
+                                    ballPixelCount++;
                                 }
                             }
                         }
                     }
 
-                    // 画面の全走査ピクセル数の概算
-                    const totalScanned = (canvas.width * canvas.height) / 16; 
-
-                    // 【対策①】グローバル・ノイズフィルター
-                    // 画面全体の4%以上が同時に動いた場合は「手ブレ」か「光の自動変化」なので、検知を完全に無視！
-                    const isCameraShaking = (totalMovedPixels / totalScanned) > 0.04;
-
                     const now = performance.now();
 
-                    if (!isCameraShaking && ballPixelCount > 4 && ballPixelCount < 400) {
+                    // 動いたサイズがボールとして適切な場合（小さすぎず大きすぎず）
+                    if (ballPixelCount > 6 && ballPixelCount < 500) {
                         const ballX = sumX / ballPixelCount;
                         const ballY = sumY / ballPixelCount;
 
-                        trackingHistory.push({
-                            x: ballX,
-                            y: ballY,
-                            size: ballPixelCount,
-                            time: now
-                        });
+                        trackingHistory.push({ x: ballX, y: ballY, size: ballPixelCount, time: now });
 
-                        if (trackingHistory.length > 8) {
+                        // 過去5フレーム分をキープ
+                        if (trackingHistory.length > 5) {
                             trackingHistory.shift();
                         }
 
+                        // --- 🚀 【核心】軌道のベクトル検証アルゴリズム ---
                         if (trackingHistory.length >= 3) {
-                            const first = trackingHistory[0];
-                            const last = trackingHistory[trackingHistory.length - 1];
+                            const p1 = trackingHistory[trackingHistory.length - 3];
+                            const p2 = trackingHistory[trackingHistory.length - 2];
+                            const p3 = trackingHistory[trackingHistory.length - 1];
 
-                            // 「奥から手前に迫ってきているか」
-                            const isMovingForward = (last.y - first.y) > 15;
-                            const isGrowing = last.size > (first.size * 1.2);
-                            const isPitchSpeed = (last.time - first.time) < 250;
+                            // 1. ベクトル（進む向きと量）を計算
+                            const v1x = p2.x - p1.x;
+                            const v1y = p2.y - p1.y;
+                            const v2x = p3.x - p2.x;
+                            const v2y = p3.y - p2.y;
 
-                            if (isMovingForward && isGrowing && isPitchSpeed) {
-                                // 画面にROIの境界線をうっすら表示（デバッグ用）
-                                ctx.strokeStyle = "rgba(0, 255, 255, 0.3)";
-                                ctx.lineWidth = 2;
-                                ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+                            // 2. それぞれのベクトルの長さ（移動距離）を計算
+                            const len1 = Math.sqrt(v1x * v1x + v1y * v1y);
+                            const len2 = Math.sqrt(v2x * v2x + v2y * v2y);
 
-                                // ボールマークを緑に描画
-                                ctx.beginPath();
-                                ctx.arc(ballX, ballY, 18, 0, 2 * Math.PI);
-                                ctx.fillStyle = "#30d158";
-                                ctx.fill();
+                            // 【物理フィルタ1：テレポート（ワープ）防止】
+                            // 1フレームで進む距離が不自然に「短すぎる」または「長すぎる」ノイズを弾く
+                            const isSpeedValid = (len1 > 5 && len1 < 100) && (len2 > 5 && len2 < 100);
 
-                                const ratioX = ballX / canvas.width;
-                                const ratioY = ballY / canvas.height;
+                            if (isSpeedValid && len1 > 0 && len2 > 0) {
+                                // 3. 内積を使って2つのベクトルのなす角（コサイン類似度）を算出
+                                const dotProduct = v1x * v2x + v1y * v2y;
+                                const cosTheta = dotProduct / (len1 * len2);
 
-                                if (conn && conn.open) {
-                                    conn.send({ x: ratioX, y: ratioY });
+                                // 【物理フィルタ2：方向の一貫性】
+                                // cos(θ) が 0.85 以上 ＝ 進む方向のズレが約30度以内のなめらかな直線の時だけボールとみなす！
+                                // さらに野球の投球なので「基本的には下方向（yが増える方向）に進んでいる」こと
+                                const isSmoothStraight = cosTheta > 0.85;
+                                const isMovingDown = v2y > 2; // 下方向へ進んでいるか
+
+                                if (isSmoothStraight && isMovingDown) {
+                                    // 画面に「あきらかなボール」として認識した緑マークを描画
+                                    ctx.beginPath();
+                                    ctx.arc(p3.x, p3.y, 20, 0, 2 * Math.PI);
+                                    ctx.fillStyle = "#30d158";
+                                    ctx.fill();
+
+                                    // PC側へ本物の座標を送信
+                                    const ratioX = p3.x / canvas.width;
+                                    const ratioY = p3.y / canvas.height;
+
+                                    if (conn && conn.open) {
+                                        conn.send({ x: ratioX, y: ratioY });
+                                    }
                                 }
                             }
                         }
                     } else {
+                        // 動きが消えたらゆっくり履歴を忘れる
                         if (trackingHistory.length > 0) trackingHistory.shift();
                     }
 
