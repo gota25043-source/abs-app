@@ -2,275 +2,713 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>ABS プロ・ビデオ判定システム</title>
+    <title>Hawk-Eye DIY: 3Dマルチカメラ弾道測定システム</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
-            background-color: #111;
-            color: white;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #0b0f19;
+            color: #e2e8f0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 15px;
             display: flex;
-            flex-direction: row;
-            height: 95vh;
+            height: 96vh;
+            gap: 15px;
+            overflow: hidden;
         }
-        /* 左側：設定パネル */
-        #setup-panel {
-            width: 320px;
-            background-color: #222;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        /* レイアウト */
+        #left-panel {
+            width: 350px;
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 15px;
             display: flex;
             flex-direction: column;
             gap: 15px;
             overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
-        /* 右側：メインモニター */
-        #monitor {
+        #center-panel {
             flex-grow: 1;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            gap: 15px;
         }
-        h2 { margin: 0 0 10px 0; font-size: 20px; color: #00ffff; border-bottom: 2px solid #00ffff; padding-bottom: 5px; }
-        .control-group {
+        #right-panel {
+            width: 400px;
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 15px;
             display: flex;
             flex-direction: column;
-            gap: 5px;
+            gap: 15px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
-        label { font-size: 14px; color: #ccc; }
-        input[type="number"], input[type="range"] {
-            padding: 8px;
-            background-color: #333;
-            border: 1px solid #555;
-            color: white;
-            border-radius: 5px;
+        h2 {
+            margin: 0;
+            font-size: 16px;
+            color: #38bdf8;
+            border-left: 4px solid #38bdf8;
+            padding-left: 8px;
+            text-transform: uppercase;
         }
-        .id-display {
-            font-size: 32px;
-            font-weight: bold;
-            color: #ffcc00;
-            text-align: center;
-            background-color: #111;
-            padding: 10px;
-            border-radius: 5px;
+        .card {
+            background: #0f172a;
+            border-radius: 8px;
+            padding: 12px;
+            border: 1px solid #334155;
         }
-        /* 映像コンテナ（比率3:4） */
-        #strike-zone-container {
-            width: 450px;
-            height: 600px;
-            border: 3px dashed #444;
+        /* カメラプレビューグリッド */
+        #camera-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            flex-grow: 1;
+        }
+        .camera-container {
+            background: #0f172a;
+            border-radius: 8px;
+            overflow: hidden;
             position: relative;
-            background-color: #151515;
-            box-shadow: 0 0 30px rgba(0,0,0,0.8);
-            overflow: hidden; /* はみ出た映像をカット */
+            border: 2px solid #334155;
+            aspect-ratio: 4/3;
         }
-        /* 【追加】背景にiPhoneのカメラ映像を重ねる */
-        #bg-video {
+        .camera-container.active {
+            border-color: #10b981;
+        }
+        .camera-video {
+            width: 100%;
+            height: 100%;
+            object-fit: fill;
+        }
+        .camera-overlay {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: fill; /* 画面サイズに強制フィットさせて座標ズレを防ぐ */
-            z-index: 1; /* 一番後ろ */
+            cursor: crosshair;
+            z-index: 10;
         }
-        /* 動的に動くストライクゾーン */
-        #dynamic-zone {
+        .cam-label {
             position: absolute;
-            border: 4px solid #fff;
-            box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
-            background-color: rgba(255, 255, 255, 0.05);
-            box-sizing: border-box;
-            z-index: 2; /* 映像の上 */
+            top: 5px;
+            left: 5px;
+            background: rgba(0,0,0,0.7);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            z-index: 20;
         }
-        /* ボールのドット */
-        #ball-dot {
-            width: 24px;
-            height: 24px;
-            background-color: #ffff00;
-            border: 2px solid #fff;
+        /* キャリブレーションツール */
+        .calib-dot {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: #f43f5e;
+            border: 2px solid white;
             border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 15;
+        }
+        .calib-dot-label {
             position: absolute;
-            display: none;
-            box-shadow: 0 0 15px #ffff00;
-            z-index: 3; /* 一番手前 */
+            color: #f43f5e;
+            font-size: 11px;
+            font-weight: bold;
+            transform: translate(8px, -15px);
+            text-shadow: 0 0 4px black;
+            z-index: 16;
         }
-        #result-display {
+        /* グラフエリア */
+        .chart-container {
+            flex-grow: 1;
+            background: #0f172a;
+            border-radius: 8px;
+            position: relative;
+            border: 1px solid #334155;
+        }
+        .chart-svg {
+            width: 100%;
+            height: 100%;
+        }
+        /* スコア表示 */
+        #metric-board {
             display: flex;
-            gap: 40px;
-            margin-top: 20px;
+            justify-content: space-around;
             align-items: center;
+            background: #0f172a;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #334155;
         }
-        #result-text {
-            font-size: 80px;
-            font-weight: bold;
-            text-shadow: 0 0 15px rgba(0,0,0,0.8);
-        }
-        #speed-text {
-            font-size: 60px;
-            font-weight: bold;
-            color: #00ffcc;
+        .metric-value {
+            font-size: 42px;
+            font-weight: 900;
+            text-align: center;
             font-family: 'Impact', sans-serif;
         }
-        .strike { color: #ff3333; text-shadow: 0 0 20px #ff3333 !important; }
-        .ball { color: #33ff33; text-shadow: 0 0 20px #33ff33 !important; }
+        .metric-title {
+            font-size: 11px;
+            color: #94a3b8;
+            text-align: center;
+            text-transform: uppercase;
+        }
+        .btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        .btn:hover { background: #2563eb; }
+        .btn-danger { background: #ef4444; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-success { background: #10b981; }
+        .btn-success:hover { background: #059669; }
     </style>
 </head>
 <body>
 
-    <div id="setup-panel">
-        <h2>① 接続設定</h2>
-        <div class="id-display" id="my-id">----</div>
-        <p style="font-size:12px; color:#aaa; margin:0;">上記4桁をiPhoneに入力</p>
-
-        <h2>② グラウンド設定</h2>
-        <div class="control-group">
-            <label>投手マウンド〜本塁の距離 (m)</label>
-            <input type="number" id="pitch-dist" value="18.44" step="0.1">
-        </div>
-        <div class="control-group">
-            <label>ホームベースの横幅 (cm)</label>
-            <input type="number" id="base-width" value="43.2" step="0.1">
+    <div id="left-panel">
+        <div class="card">
+            <h2>① システム接続キー</h2>
+            <div style="font-size: 28px; font-weight: bold; text-align: center; color: #f59e0b; margin: 10px 0;" id="master-id">----</div>
+            <div style="font-size: 11px; color: #94a3b8; text-align: center;">スマホ側にこの4桁を入力して接続</div>
         </div>
 
-        <h2>③ ストライクゾーン位置微調整</h2>
-        <p style="font-size:12px; color:#aaa; margin:0;">背景の映像を見ながら、実際のベースとバッターの胸〜膝に枠を合わせてください。</p>
-        <div class="control-group">
-            <label>左右幅 (左端〜右端)</label>
-            <input type="range" id="zone-left" min="0" max="100" value="25">
-            <input type="range" id="zone-right" min="0" max="100" value="75">
+        <div class="card" style="display: flex; flex-direction: column; gap: 8px;">
+            <h2>② 空間初期設定 (DLT)</h2>
+            <div style="font-size: 12px; color: #cbd5e1;">スマホを固定し、各カメラで以下の基準点を順番にタップしてください。</div>
+            
+            <select id="active-cam-select" style="padding: 6px; background: #334155; color: white; border: none; border-radius: 4px;">
+                <option value="1">カメラ 1 (マウンド真後ろ)</option>
+                <option value="2">カメラ 2 (一塁側斜め前)</option>
+                <option value="3">カメラ 3 (三塁側斜め前)</option>
+            </select>
+
+            <div id="calib-points-status" style="font-size: 12px; margin-top: 5px;">
+                </div>
+            
+            <button class="btn btn-success" id="calc-dlt-btn" style="margin-top: 8px;">カメラ行列を確定・保存</button>
         </div>
-        <div class="control-group">
-            <label>高低幅 (下端〜上端)</label>
-            <input type="range" id="zone-bottom" min="0" max="100" value="75">
-            <input type="range" id="zone-top" min="0" max="100" value="25">
+
+        <div class="card">
+            <h2>③ ストライクゾーン設定 (m)</h2>
+            <div style="display: flex; gap: 10px; margin-top: 8px;">
+                <div>
+                    <label style="font-size: 11px; color: #94a3b8;">低め (膝)</label>
+                    <input type="number" id="sz-low" value="0.5" step="0.05" style="width: 100%; padding: 5px; background: #334155; border: none; color: white; border-radius: 4px;">
+                </div>
+                <div>
+                    <label style="font-size: 11px; color: #94a3b8;">高め (胸)</label>
+                    <input type="number" id="sz-high" value="1.1" step="0.05" style="width: 100%; padding: 5px; background: #334155; border: none; color: white; border-radius: 4px;">
+                </div>
+            </div>
+        </div>
+        
+        <button class="btn btn-danger" id="clear-data-btn">測定履歴リセット</button>
+    </div>
+
+    <div id="center-panel">
+        <div id="camera-grid">
+            <div class="camera-container" id="cam-container-1">
+                <span class="cam-label" style="color: #60a5fa;">CAM 1 (真後ろ) <span id="cam-fps-1">-- fps</span></span>
+                <video class="camera-video" id="video-1" autoplay playsinline muted></video>
+                <div class="camera-overlay" id="overlay-1"></div>
+            </div>
+            <div class="camera-container" id="cam-container-2">
+                <span class="cam-label" style="color: #34d399;">CAM 2 (一塁側) <span id="cam-fps-2">-- fps</span></span>
+                <video class="camera-video" id="video-2" autoplay playsinline muted></video>
+                <div class="camera-overlay" id="overlay-2"></div>
+            </div>
+            <div class="camera-container" id="cam-container-3">
+                <span class="cam-label" style="color: #a78bfa;">CAM 3 (三塁側) <span id="cam-fps-3">-- fps</span></span>
+                <video class="camera-video" id="video-3" autoplay playsinline muted></video>
+                <div class="camera-overlay" id="overlay-3"></div>
+            </div>
+        </div>
+
+        <div id="metric-board">
+            <div>
+                <div class="metric-value" id="result-text" style="color: #64748b;">READY</div>
+                <div class="metric-title">JUDGEMENT</div>
+            </div>
+            <div>
+                <div class="metric-value" id="speed-text" style="color: #38bdf8;">-- <span style="font-size: 18px;">km/h</span></div>
+                <div class="metric-title">PITCH SPEED</div>
+            </div>
+            <div>
+                <div class="metric-value" id="accuracy-text" style="color: #a8a29e;">-- <span style="font-size: 18px;">mm</span></div>
+                <div class="metric-title">3D ERROR</div>
+            </div>
         </div>
     </div>
 
-    <div id="monitor">
-        <div id="strike-zone-container">
-            <video id="bg-video" autoplay playsinline muted></video>
-            <div id="dynamic-zone"></div>
-            <div id="ball-dot"></div>
+    <div id="right-panel">
+        <div class="chart-container">
+            <span class="cam-label" style="background: rgba(15,23,42,0.9);">正面図 (Strike Zone)</span>
+            <svg class="chart-svg" id="svg-front" viewBox="-0.8 -0.2 1.6 1.8"></svg>
         </div>
-        <div id="result-display">
-            <div id="result-text" style="color: #666;">WAITING...</div>
-            <div id="speed-text">-- <span style="font-size:24px;">km/h</span></div>
+        <div class="chart-container">
+            <span class="cam-label" style="background: rgba(15,23,42,0.9);">平面図 (XZ 軌道真上)</span>
+            <svg class="chart-svg" id="svg-top" viewBox="-1.5 -1 3 20"></svg>
+        </div>
+        <div class="chart-container">
+            <span class="cam-label" style="background: rgba(15,23,42,0.9);">側面図 (YZ 軌道真横)</span>
+            <svg class="chart-svg" id="svg-side" viewBox="-1 -0.2 20 2.2"></svg>
         </div>
     </div>
 
     <script>
-        const randomNum = Math.floor(1000 + Math.random() * 9000); 
-        const myCustomId = `abs-${randomNum}`;
-        const peer = new Peer(myCustomId);
+        // --- 基準点の実世界3D座標定義 (単位: メートル) ---
+        const CALIB_3D_POINTS = [
+            { X: -0.216, Y: 0.0, Z: 0.0 },     // P1: ホーム左角
+            { X: 0.216,  Y: 0.0, Z: 0.0 },     // P2: ホーム右角
+            { X: -0.71,  Y: 0.0, Z: 0.91 },    // P3: 左打席前内角
+            { X: 0.71,   Y: 0.0, Z: 0.91 },    // P4: 右打席前内角
+            { X: 0.0,    Y: 1.0, Z: 0.0 },     // P5: ホーム中心に置いたスタンドの天辺(高さ1m)
+            { X: 0.71,   Y: 1.0, Z: 0.91 }     // P6: 右打席角に置いたスタンドの天辺(高さ1m)
+        ];
 
-        const ballDot = document.getElementById('ball-dot');
-        const resultText = document.getElementById('result-text');
-        const speedText = document.getElementById('speed-text');
-        const dynamicZone = document.getElementById('dynamic-zone');
-        const bgVideo = document.getElementById('bg-video');
+        const POINT_NAMES = [
+            "P1: ホーム左角 (地面)",
+            "P2: ホーム右角 (地面)",
+            "P3: 左打席前角 (地面)",
+            "P4: 右打席前角 (地面)",
+            "P5: ホーム中心棒天辺 (高さ1m)",
+            "P6: 右打席角棒天辺 (高さ1m)"
+        ];
 
-        const sLeft = document.getElementById('zone-left');
-        const sRight = document.getElementById('zone-right');
-        const sTop = document.getElementById('zone-top');
-        const sBottom = document.getElementById('zone-bottom');
+        // 状態変数
+        let myId = Math.floor(1000 + Math.random() * 9000);
+        const peer = new Peer(`abs-master-${myId}`);
+        let connections = {};
+        
+        // キャリブレーション用座標プール: { camId: [ {u, v}, ... ] }
+        let clickedCoords = { 1: [], 2: [], 3: [] };
+        let activePointIdx = 0;
 
-        let pitchStartTime = 0;
-        let isPitching = false;
+        // 計算された各カメラの投影行列 (3x4 = 12要素)
+        let cameraMatrices = { 1: null, 2: null, 3: null };
+
+        // 各カメラからの2次元データキュー { camId: [ {u, v, t}, ... ] }
+        let detectionQueues = { 1: [], 2: [], 3: [] };
+
+        // 解析された3D軌道データ
+        let trajectory3D = [];
 
         peer.on('open', (id) => {
-            document.getElementById('my-id').textContent = randomNum;
+            document.getElementById('master-id').textContent = myId;
         });
 
-        // iPhoneからカメラ映像（ストリーム）が届いたときの処理
+        // WebRTC 映像受信
         peer.on('call', (call) => {
-            call.answer(); // 通話に応答
+            call.answer();
             call.on('stream', (remoteStream) => {
-                // 受信した映像をビデオ要素にセットして再生
-                bgVideo.srcObject = remoteStream;
-                bgVideo.play().catch(e => console.log("Video play error:", e));
+                // client側からカメラ番号がメタデータとして来るように設計するが、
+                // 接続順でカメラ番号を割り当てる
+                let camId = Object.keys(connections).length + 1;
+                if (camId > 3) camId = 3; 
+                
+                const videoEl = document.getElementById(`video-${camId}`);
+                videoEl.srcObject = remoteStream;
+                videoEl.play().catch(e => console.log("Stream play failed:", e));
+                document.getElementById(`cam-container-${camId}`).classList.add('active');
             });
         });
 
-        // ストライクゾーン枠の描画更新
-        function updateZoneDrawing() {
-            const containerW = 450;
-            const containerH = 600;
+        // WebRTC データ受信
+        peer.on('connection', (conn) => {
+            let camId = Object.keys(connections).length + 1;
+            if (camId > 3) camId = 3;
+            connections[camId] = conn;
 
-            const leftPercent = sLeft.value / 100;
-            const rightPercent = sRight.value / 100;
-            const topPercent = sTop.value / 100;
-            const bottomPercent = sBottom.value / 100;
+            conn.on('data', (data) => {
+                if (data.u !== undefined && data.v !== undefined) {
+                    // 各カメラのキューにタイムスタンプと共に保存
+                    detectionQueues[camId].push({
+                        u: data.u,
+                        v: data.v,
+                        t: performance.now()
+                    });
+                    
+                    // キューの長さを制限 (直近30コマ)
+                    if (detectionQueues[camId].length > 30) {
+                        detectionQueues[camId].shift();
+                    }
 
-            const width = (rightPercent - leftPercent) * containerW;
-            const height = (bottomPercent - topPercent) * containerH;
+                    // リアルタイム3D三角測量を走らせる
+                    processTriangulation(camId);
+                }
+            });
+        });
 
-            dynamicZone.style.left = `${leftPercent * containerW}px`;
-            dynamicZone.style.top = `${topPercent * containerH}px`;
-            dynamicZone.style.width = `${width}px`;
-            dynamicZone.style.height = `${height}px`;
+        // --- UI キャリブレーション点クリック処理 ---
+        function renderPointStatus() {
+            const container = document.getElementById('calib-points-status');
+            container.innerHTML = "";
+            const activeCam = document.getElementById('active-cam-select').value;
+            const currentPoints = clickedCoords[activeCam];
+
+            POINT_NAMES.forEach((name, idx) => {
+                const div = document.createElement('div');
+                div.style.padding = "4px";
+                div.style.fontSize = "12px";
+                div.style.borderRadius = "4px";
+                div.style.marginBottom = "2px";
+                
+                if (idx === activePointIdx) {
+                    div.style.background = "#2563eb";
+                    div.style.color = "white";
+                    div.style.fontWeight = "bold";
+                } else if (currentPoints[idx]) {
+                    div.style.color = "#10b981";
+                    div.textContent = `✓ ${name}`;
+                    container.appendChild(div);
+                    return;
+                } else {
+                    div.style.color = "#64748b";
+                }
+                div.textContent = `${idx + 1}. ${name}`;
+                container.appendChild(div);
+            });
         }
 
-        [sLeft, sRight, sTop, sBottom].forEach(slider => {
-            slider.addEventListener('input', updateZoneDrawing);
+        document.getElementById('active-cam-select').addEventListener('change', () => {
+            activePointIdx = 0;
+            renderPointStatus();
+            redrawOverlayPoints();
         });
-        updateZoneDrawing();
 
-        peer.on('connection', (conn) => {
-            resultText.textContent = "READY";
-            resultText.style.color = "#00ffff";
-            
-            conn.on('data', (data) => {
-                const containerW = 450;
-                const containerH = 600;
-
-                const x = data.x * containerW;
-                const y = data.y * containerH;
-
-                ballDot.style.left = `${x - 12}px`; // ドットサイズに合わせて補正
-                ballDot.style.top = `${y - 12}px`;
-                ballDot.style.display = 'block';
-
-                // 簡易球速測定
-                if (!isPitching && data.y < 0.4) {
-                    pitchStartTime = performance.now();
-                    isPitching = true;
+        [1, 2, 3].forEach(camId => {
+            const overlay = document.getElementById(`overlay-${camId}`);
+            overlay.addEventListener('click', (e) => {
+                const selectedCam = document.getElementById('active-cam-select').value;
+                if (parseInt(selectedCam) !== camId) {
+                    alert(`現在設定対象になっているのは「カメラ ${selectedCam}」です。セレクトボックスを変更してください。`);
+                    return;
                 }
 
-                if (isPitching && data.y > 0.75) {
-                    const durationMs = performance.now() - pitchStartTime;
-                    const durationSec = durationMs / 1000;
-                    const distance = parseFloat(document.getElementById('pitch-dist').value);
-                    const speedMPS = distance / durationSec;
-                    const speedKMH = Math.round(speedMPS * 3.6);
+                const rect = overlay.getBoundingClientRect();
+                const u = (e.clientX - rect.left) / rect.width;
+                const v = (e.clientY - rect.top) / rect.height;
 
-                    if (speedKMH > 30 && speedKMH < 170) {
-                        speedText.innerHTML = `${speedKMH} <span style="font-size:24px;">km/h</span>`;
-                    }
-                    isPitching = false;
-                }
-
-                // 判定処理
-                const leftLimit = sLeft.value / 100;
-                const rightLimit = sRight.value / 100;
-                const topLimit = sTop.value / 100;
-                const bottomLimit = sBottom.value / 100;
-
-                if (data.x >= leftLimit && data.x <= rightLimit && data.y >= topLimit && data.y <= bottomLimit) {
-                    resultText.textContent = "STRIKE!";
-                    resultText.className = "strike";
-                    speak("ストライク！");
+                clickedCoords[camId][activePointIdx] = { u, v };
+                
+                if (activePointIdx < 5) {
+                    activePointIdx++;
                 } else {
-                    resultText.textContent = "BALL";
-                    resultText.className = "ball";
-                    speak("ボール");
+                    activePointIdx = 0; // ループ
                 }
+                renderPointStatus();
+                redrawOverlayPoints();
             });
         });
+
+        function redrawOverlayPoints() {
+            [1, 2, 3].forEach(camId => {
+                const overlay = document.getElementById(`overlay-${camId}`);
+                // 既存の点をクリア
+                overlay.querySelectorAll('.calib-dot').forEach(el => el.remove());
+                overlay.querySelectorAll('.calib-dot-label').forEach(el => el.remove());
+
+                clickedCoords[camId].forEach((pt, idx) => {
+                    const dot = document.createElement('div');
+                    dot.className = 'calib-dot';
+                    dot.style.left = `${pt.u * 100}%`;
+                    dot.style.top = `${pt.v * 100}%`;
+
+                    const label = document.createElement('div');
+                    label.className = 'calib-dot-label';
+                    label.style.left = `${pt.u * 100}%`;
+                    label.style.top = `${pt.v * 100}%`;
+                    label.textContent = `P${idx+1}`;
+
+                    overlay.appendChild(dot);
+                    overlay.appendChild(label);
+                });
+            });
+        }
+
+        renderPointStatus();
+
+        // --- 🚀 数学コア：DLT (カメラ投影行列の計算) ---
+        document.getElementById('calc-dlt-btn').onclick = () => {
+            const activeCam = document.getElementById('active-cam-select').value;
+            const pts = clickedCoords[activeCam];
+
+            if (pts.length < 6) {
+                alert("6つの基準点をすべて設定してから計算してください！");
+                return;
+            }
+
+            // A matrix (11x11), B matrix (11x1) を生成
+            let A = [];
+            let B = [];
+
+            for (let i = 0; i < 6; i++) {
+                let p3d = CALIB_3D_POINTS[i];
+                let p2d = pts[i];
+                let X = p3d.X, Y = p3d.Y, Z = p3d.Z;
+                let u = p2d.u, v = p2d.v;
+
+                // 方程式 1
+                A.push([X, Y, Z, 1, 0, 0, 0, 0, -u*X, -u*Y, -u*Z]);
+                B.push(u);
+
+                // 方程式 2
+                A.push([0, 0, 0, 0, X, Y, Z, 1, -v*X, -v*Y, -v*Z]);
+                B.push(v);
+            }
+
+            // 11元一次方程式にするため最初の11個を使用
+            A = A.slice(0, 11);
+            B = B.slice(0, 11);
+
+            try {
+                // ガウス消去法で解く
+                let w = solveLinearSystem(A, B);
+                // m12 = 1.0 とする
+                cameraMatrices[activeCam] = [
+                    w[0], w[1], w[2], w[3],
+                    w[4], w[5], w[6], w[7],
+                    w[8], w[9], w[10], 1.0
+                ];
+                alert(`カメラ ${activeCam} の3次元空間キャリブレーションに成功しました！`);
+            } catch (err) {
+                alert("計算エラーが発生しました。点の配置が不自然です。配置し直してください。");
+                console.error(err);
+            }
+        };
+
+        // ガウス消去法ソルバー
+        function solveLinearSystem(A, B) {
+            let n = B.length;
+            for (let i = 0; i < n; i++) {
+                let maxEl = Math.abs(A[i][i]);
+                let maxRow = i;
+                for (let k = i + 1; k < n; k++) {
+                    if (Math.abs(A[k][i]) > maxEl) {
+                        maxEl = Math.abs(A[k][i]);
+                        maxRow = k;
+                    }
+                }
+                for (let k = i; k < n; k++) {
+                    let tmp = A[maxRow][k];
+                    A[maxRow][k] = A[i][k];
+                    A[i][k] = tmp;
+                }
+                let tmp = B[maxRow];
+                B[maxRow] = B[i];
+                B[i] = tmp;
+
+                for (let k = i + 1; k < n; k++) {
+                    let c = -A[k][i] / A[i][i];
+                    for (let j = i; j < n; j++) {
+                        if (i === j) A[k][j] = 0;
+                        else A[k][j] += c * A[i][j];
+                    }
+                    B[k] += c * B[i];
+                }
+            }
+            let x = new Array(n).fill(0);
+            for (let i = n - 1; i >= 0; i--) {
+                x[i] = B[i] / A[i][i];
+                for (let k = i - 1; k >= 0; k--) {
+                    B[k] -= A[k][i] * x[i];
+                }
+            }
+            return x;
+        }
+
+        // --- 🚀 数学コア：非同期補間 & 3D三角測量 ---
+        function processTriangulation(triggerCamId) {
+            // 最低でも2台のキャリブレーションが済んでいないと動かさない
+            const activeCams = [1, 2, 3].filter(id => cameraMatrices[id] !== null);
+            if (activeCams.length < 2) return;
+
+            // トリガーカメラの最新の検出データ
+            const triggerQueue = detectionQueues[triggerCamId];
+            if (triggerQueue.length === 0) return;
+            const latest = triggerQueue[triggerQueue.length - 1];
+            const targetTime = latest.t;
+
+            // 他の稼働中カメラについて、このtargetTimeでの座標を「時間軸から補間」する
+            let synchronizedObs = {};
+            synchronizedObs[triggerCamId] = { u: latest.u, v: latest.v };
+
+            for (let camId of activeCams) {
+                if (camId === triggerCamId) continue;
+                const q = detectionQueues[camId];
+                if (q.length < 2) continue; // 補間には最低2つの古いフレームが必要
+
+                // targetTimeを挟み込む前後のコマを探す
+                let before = null;
+                let after = null;
+                for (let i = q.length - 1; i >= 0; i--) {
+                    if (q[i].t <= targetTime) { before = q[i]; break; }
+                }
+                for (let i = 0; i < q.length; i++) {
+                    if (q[i].t >= targetTime) { after = q[i]; break; }
+                }
+
+                // 前後のコマが見つかり、時間差が許容範囲(例: 100ms以内)のときのみ線形補間
+                if (before && after && (after.t - before.t) < 100) {
+                    const duration = after.t - before.t;
+                    const factor = duration === 0 ? 0.5 : (targetTime - before.t) / duration;
+                    const interpU = before.u + factor * (after.u - before.u);
+                    const interpV = before.v + factor * (after.v - before.v);
+                    synchronizedObs[camId] = { u: interpU, v: interpV };
+                }
+            }
+
+            // 同期したカメラデータが2台以上揃ったら三角測量を実行
+            const syncedIds = Object.keys(synchronizedObs);
+            if (syncedIds.length >= 2) {
+                let A_tri = [];
+                let B_tri = [];
+
+                syncedIds.forEach(id => {
+                    const M = cameraMatrices[id];
+                    const obs = synchronizedObs[id];
+                    const u = obs.u;
+                    const v = obs.v;
+
+                    // DLT三角測量方程式の構築
+                    A_tri.push([ u*M[8] - M[0],  u*M[9] - M[1],  u*M[10] - M[2] ]);
+                    B_tri.push( M[3] - u );
+
+                    A_tri.push([ v*M[8] - M[4],  v*M[9] - M[5],  v*M[10] - M[6] ]);
+                    B_tri.push( M[7] - v );
+                });
+
+                // 最小二乗法で3D座標を算出
+                const p3D = solveLeastSquares3D(A_tri, B_tri);
+                if (p3D) {
+                    const [X, Y, Z] = p3D;
+
+                    // あきらかにグラウンドの枠を超えているエラー値（ノイズ）は弾く
+                    if (Math.abs(X) < 5 && Y > -0.5 && Y < 4 && Z > -2 && Z < 22) {
+                        trajectory3D.push({ X, Y, Z, t: targetTime });
+                        
+                        // 履歴が長すぎる場合は古いものを捨てる
+                        if (trajectory3D.length > 100) trajectory3D.shift();
+
+                        updatePlots();
+                        analyzePitchMetrics();
+                    }
+                }
+            }
+        }
+
+        // 最小二乗法ソルバー (A^T * A * P = A^T * B)
+        function solveLeastSquares3D(A, B) {
+            let C = [ [0,0,0], [0,0,0], [0,0,0] ];
+            let D = [ 0, 0, 0 ];
+            let rows = A.length;
+
+            for (let r = 0; r < rows; r++) {
+                let row = A[r];
+                let val = B[r];
+                for (let i = 0; i < 3; i++) {
+                    for (let j = 0; j < 3; j++) {
+                        C[i][j] += row[i] * row[j];
+                    }
+                    D[i] += row[i] * val;
+                }
+            }
+
+            // クラメルの公式で3x3を高速に解く
+            let det = C[0][0]*(C[1][1]*C[2][2] - C[1][2]*C[2][1]) -
+                      C[0][1]*(C[1][0]*C[2][2] - C[1][2]*C[2][0]) +
+                      C[0][2]*(C[1][0]*C[2][1] - C[1][1]*C[2][0]);
+
+            if (Math.abs(det) < 1e-8) return null;
+
+            let detX = D[0]*(C[1][1]*C[2][2] - C[1][2]*C[2][1]) -
+                       C[0][1]*(D[1]*C[2][2] - C[1][2]*D[2]) +
+                       C[0][2]*(D[1]*C[2][1] - C[1][1]*D[2]);
+
+            let detY = C[0][0]*(D[1]*C[2][2] - C[1][2]*D[2]) -
+                       D[0]*(C[1][0]*C[2][2] - C[1][2]*C[2][0]) +
+                       C[0][2]*(C[1][0]*D[2] - D[1]*C[2][0]);
+
+            let detZ = C[0][0]*(C[1][1]*D[2] - D[1]*C[2][1]) -
+                       C[0][1]*(C[1][0]*D[2] - D[1]*C[2][0]) +
+                       D[0]*(C[1][0]*C[2][1] - C[1][1]*C[2][0]);
+
+            return [detX / det, detY / det, detZ / det];
+        }
+
+        // --- 📊 判定・球速分析ロジック ---
+        let lastLoggedPitchId = "";
+        function analyzePitchMetrics() {
+            if (trajectory3D.length < 5) return;
+
+            // マウンド方向からホーム方向への変化を監視
+            const startPt = trajectory3D[0];
+            const endPt = trajectory3D[trajectory3D.length - 1];
+
+            const distance = startPt.Z - endPt.Z;
+            const durationSec = (endPt.t - startPt.t) / 1000;
+
+            // 球速測定 (距離 / 時間)
+            if (distance > 2 && durationSec > 0.05) {
+                const speedKMH = Math.round((distance / durationSec) * 3.6);
+                if (speedKMH > 50 && speedKMH < 170) {
+                    document.getElementById('speed-text').innerHTML = `${speedKMH} <span style="font-size:18px;">km/h</span>`;
+                }
+            }
+
+            // ストライク・ボールの判定 (ボールが Z = 0（ホーム前端）を通過した瞬間を検出)
+            // Z=0に近い2つの点から内挿・外挿する
+            let crossPoint = null;
+            for (let i = 0; i < trajectory3D.length - 1; i++) {
+                let p1 = trajectory3D[i];
+                let p2 = trajectory3D[i+1];
+                if ((p1.Z >= 0 && p2.Z <= 0) || (p1.Z <= 0 && p2.Z >= 0)) {
+                    // Z=0をまたいだ瞬間
+                    const ratio = p1.Z / (p1.Z - p2.Z);
+                    const X_at_0 = p1.X + ratio * (p2.X - p1.X);
+                    const Y_at_0 = p1.Y + ratio * (p2.Y - p1.Y);
+                    crossPoint = { X: X_at_0, Y: Y_at_0 };
+                    break;
+                }
+            }
+
+            if (crossPoint) {
+                const szLow = parseFloat(document.getElementById('sz-low').value);
+                const szHigh = parseFloat(document.getElementById('sz-high').value);
+                const isStrikeX = Math.abs(crossPoint.X) <= 0.216; // ホームベース幅43.2cmの半分
+                const isStrikeY = crossPoint.Y >= szLow && crossPoint.Y <= szHigh;
+
+                const resultEl = document.getElementById('result-text');
+                
+                // 同じ球に対して何度も読み上げないようトリガー制御
+                const pitchId = `${Math.round(crossPoint.X*100)}-${Math.round(crossPoint.Y*100)}`;
+
+                if (isStrikeX && isStrikeY) {
+                    resultEl.textContent = "STRIKE!";
+                    resultEl.style.color = "#ef4444";
+                    if (lastLoggedPitchId !== pitchId) {
+                        speak("ストライク！");
+                        lastLoggedPitchId = pitchId;
+                    }
+                } else {
+                    resultEl.textContent = "BALL";
+                    resultEl.style.color = "#10b981";
+                    if (lastLoggedPitchId !== pitchId) {
+                        speak("ボール");
+                        lastLoggedPitchId = pitchId;
+                    }
+                }
+            }
+        }
 
         function speak(text) {
             speechSynthesis.cancel();
@@ -279,6 +717,54 @@
             uttr.rate = 1.3;
             speechSynthesis.speak(uttr);
         }
+
+        // --- 📈 SVGによる軌道の描画更新 ---
+        function updatePlots() {
+            const svgFront = document.getElementById('svg-front');
+            const svgTop = document.getElementById('svg-top');
+            const svgSide = document.getElementById('svg-side');
+
+            // 1. 正面ストライクゾーンの再描画
+            const szLow = parseFloat(document.getElementById('sz-low').value);
+            const szHigh = parseFloat(document.getElementById('sz-high').value);
+            svgFront.innerHTML = `
+                <polygon points="-0.216,0 -0.216,0.1 0,0.2 0.216,0.1 0.216,0" fill="#334155" opacity="0.5"/>
+                <rect x="-0.216" y="${szLow}" width="0.432" height="${szHigh - szLow}" fill="none" stroke="#38bdf8" stroke-width="0.02" stroke-dasharray="0.05 0.05"/>
+            `;
+
+            // 2. 真上平面図の再描画
+            svgTop.innerHTML = `
+                <polygon points="-0.216,0 0.216,0 0,-0.3" fill="#ffffff" opacity="0.3"/>
+                <rect x="-0.3" y="18.44" width="0.6" height="0.1" fill="#ffffff" opacity="0.3"/>
+            `;
+
+            // 3. 真横側面図の再描画
+            svgSide.innerHTML = `
+                <line x1="-1" y1="0" x2="20" y2="0" stroke="#475569" stroke-width="0.05"/>
+                <line x1="0" y1="${szLow}" x2="0" y2="${szHigh}" stroke="#38bdf8" stroke-width="0.02"/>
+            `;
+
+            // ボールのプロット
+            trajectory3D.forEach((pt, idx) => {
+                const opacity = (idx + 1) / trajectory3D.length; // 新しいほど濃く
+                const color = "#f59e0b";
+
+                // 正面
+                svgFront.innerHTML += `<circle cx="${pt.X}" cy="${pt.Y}" r="0.03" fill="${color}" opacity="${opacity}" />`;
+                // 真上
+                svgTop.innerHTML += `<circle cx="${pt.X}" cy="${pt.Z}" r="0.06" fill="${color}" opacity="${opacity}" />`;
+                // 真横
+                svgSide.innerHTML += `<circle cx="${pt.Z}" cy="${pt.Y}" r="0.06" fill="${color}" opacity="${opacity}" />`;
+            });
+        }
+
+        document.getElementById('clear-data-btn').onclick = () => {
+            trajectory3D = [];
+            document.getElementById('result-text').textContent = "READY";
+            document.getElementById('result-text').style.color = "#64748b";
+            document.getElementById('speed-text').innerHTML = `-- <span style="font-size: 18px;">km/h</span>`;
+            updatePlots();
+        };
     </script>
 </body>
 </html>
