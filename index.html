@@ -286,8 +286,8 @@
 
         // 状態変数
         let myId = Math.floor(1000 + Math.random() * 9000);
-        // PC側の PeerID は一意になるようにランダムなIDを追加
-        const peer = new Peer(`abs-master-${myId}-${Math.floor(Math.random()*1000)}`);
+        // スマホ側と完全に一致させるように修正
+        const peer = new Peer(`abs-master-${myId}`);
         let connections = {};
         
         // キャリブレーション用座標プール: { camId: [ {u, v}, ... ] }
