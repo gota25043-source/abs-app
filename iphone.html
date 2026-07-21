@@ -20,7 +20,6 @@
             position: relative;
             flex-grow: 1;
             background: black;
-            cursor: pointer; /* iOS対策のタップエリア */
         }
         video, canvas {
             position: absolute;
@@ -28,7 +27,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: contain;
+            object-fit: fill; /* 画面サイズと座標系の完全一致 */
         }
         #ui-overlay {
             padding: 15px;
@@ -45,19 +44,21 @@
             align-items: center;
             gap: 10px;
         }
-        input {
+        select, input {
             padding: 10px;
-            font-size: 16px;
+            font-size: 15px;
             background: #0f172a;
             border: 1px solid #475569;
             color: white;
             border-radius: 6px;
+        }
+        input[type="number"] {
             flex-grow: 1;
             text-align: center;
         }
         button {
-            padding: 12px 24px;
-            font-size: 16px;
+            padding: 12px 20px;
+            font-size: 15px;
             background: #2563eb;
             color: white;
             border: none;
@@ -67,9 +68,21 @@
         #status-message {
             color: #f59e0b;
             font-weight: bold;
-            font-size: 14px;
+            font-size: 13px;
             text-align: center;
             margin: 0;
+        }
+        #play-mask {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 99;
         }
     </style>
 </head>
@@ -78,23 +91,22 @@
     <div id="cam-preview-area">
         <video id="webcam" autoplay playsinline muted></video>
         <canvas id="motion-canvas"></canvas>
-        <div id="ios-play-helper" style="position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; color: white; display: none;">
-            タップしてカメラを再生
-        </div>
+        <div id="play-mask" style="display: none;">画面をタップしてカメラ起動</div>
     </div>
 
     <div id="ui-overlay">
-        <p id="status-message">カメラ準備中...</p>
+        <p id="status-message">カメラ初期化中...</p>
         
         <div class="row">
-            <input type="number" id="pc-token" placeholder="PC上の4桁のキーを入力" pattern="[0-9]*" inputmode="numeric">
-            <button id="btn-connect">PCへ送信開始</button>
+            <select id="cam-id-select">
+                <option value="1">CAM 1 (真後ろ)</option>
+                <option value="2">CAM 2 (一塁側)</option>
+                <option value="3">CAM 3 (三塁側)</option>
+            </select>
+            <input type="number" id="pc-token" placeholder="PCの4桁キー" pattern="[0-9]*" inputmode="numeric">
         </div>
         
-        <div class="row" style="font-size: 12px; color: #94a3b8;">
-            <span>感度設定:</span>
-            <input type="range" id="sensitivity-slider" min="40" max="150" value="80" style="flex-grow: 1;">
-        </div>
+        <button id="btn-connect" style="width: 100%;">PCへ接続・送信開始</button>
     </div>
 
     <script>
@@ -102,240 +114,165 @@
         const canvas = document.getElementById('motion-canvas');
         const ctx = canvas.getContext('2d');
         const statusMsg = document.getElementById('status-message');
-        const iosPlayHelper = document.getElementById('ios-play-helper');
+        const playMask = document.getElementById('play-mask');
 
-        let peer = new Peer(); // スマホのPeerIDは自動生成(UUID)
+        let peer = new Peer();
         let dataConn = null;
         let videoStream = null;
+        let isEngineRunning = false;
 
-        // 感度設定を保持するグローバル変数
-        let diffThreshold = 80;
-        document.getElementById('sensitivity-slider').addEventListener('input', (e) => {
-            diffThreshold = parseInt(e.target.value);
-        });
-
-        // --- 📱 【Bug修正済】高速カメラ起動 (iOS/Android自動最適化) ---
-        navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: 'environment', // 背面カメラ
-                // 可能であれば最大フレームレート（機種により自動適用）
-                frameRate: { ideal: 60, min: 30 },
-                width: { ideal: 640 }, // 解像度はほどほどに(処理負荷軽減)
-                height: { ideal: 480 }
-            },
-            audio: false
-        })
-        .then(stream => {
-            video.srcObject = stream;
-            videoStream = stream;
-            
-            // 【Bug修正: iOS対策】video.play() の実行保証
-            video.onloadedmetadata = () => {
-                video.play()
-                .then(() => {
-                    statusMsg.textContent = "カメラ起動完了。PCの接続キーを入力してください。";
-                    iosPlayHelper.style.display = 'none';
-                })
-                .catch(err => {
-                    // 自動再生がブロックされた場合（iOS Safariなど）
-                    statusMsg.textContent = "カメラの自動再生がブロックされました。画面をタップしてください。";
-                    iosPlayHelper.style.display = 'flex';
-                    // ユーザーアクションで再生させる
-                    document.getElementById('cam-preview-area').addEventListener('click', () => {
-                        video.play();
-                        iosPlayHelper.style.display = 'none';
-                        statusMsg.textContent = "カメラ映像再生中。PCの接続キーを入力してください。";
-                    }, { once: true });
+        function initCamera() {
+            navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', frameRate: { ideal: 60 } },
+                audio: false
+            })
+            .then(stream => {
+                videoStream = stream;
+                video.srcObject = stream;
+                video.play().then(() => {
+                    statusMsg.textContent = "カメラ準備完了。PCキーを入力してください。";
+                    playMask.style.display = 'none';
+                }).catch(() => {
+                    playMask.style.display = 'flex';
                 });
-            };
-        })
-        .catch(err => {
-            statusMsg.textContent = "カメラ起動失敗: " + err;
-            console.error('getUserMedia error:', err);
+            })
+            .catch(err => {
+                statusMsg.textContent = "カメラアクセスエラー: 権限を確認してください";
+            });
+        }
+
+        playMask.addEventListener('click', () => {
+            video.play();
+            playMask.style.display = 'none';
+            statusMsg.textContent = "カメラ準備完了。PCキーを入力してください。";
         });
 
-        // --- 📡 【Bug修正済】WebRTCによる送信処理シーケンス ---
+        initCamera();
+
         document.getElementById('btn-connect').onclick = () => {
             const token = document.getElementById('pc-token').value;
+            const selectedCamId = parseInt(document.getElementById('cam-id-select').value);
+
             if(!token || token.length !== 4) {
-                alert("正しい4桁の数字を入力してください。");
+                alert("PC画面上の4桁の数字を入力してください。");
                 return;
             }
 
-            // PC側でIDが被らないように設計したID体系をターゲットにする
-            // index_pc.html で指定したID体系に合わせる
-            const masterPeerIdPrefix = `abs-master-${token}`;
-            statusMsg.textContent = "PCに接続中... (PeerID探索中)";
+            const targetId = `abs-master-${token}`;
+            statusMsg.textContent = `PCに接続中...`;
 
-            // 1. PeerJS のAPIで、指定したプレフィックスを持つPeerIDがオープンしているか確認する機能はないため、
-            //    まずは接続を試みる。もしPC側のIDが変更されているとエラーになる。
-            //    簡易化のため、PC側のIDをUUIDベースにして、このtokenを「接続リクエスト」として送る実装に大改造する必要があるが、
-            //    今の実装（固定ID）でデバッグを続ける。
-            const targetId = `abs-master-${token}`; // (Bug修正: index_pc.html とID体系を合わせる)
+            try {
+                dataConn = peer.connect(targetId, { metadata: { camId: selectedCamId } });
+                
+                dataConn.on('open', () => {
+                    statusMsg.textContent = `CAM ${selectedCamId} 接続成功！測定中...`;
+                    statusMsg.style.color = "#10b981";
 
-            // データコネクションを開く（座標送信テスト用）
-            dataConn = peer.connect(targetId, {
-                metadata: {
-                    type: 'client',
-                    camId: 1 // 本来はPC側で割り当てるべきだが、簡易的に指定
-                }
-            });
-            
-            dataConn.on('open', () => {
-                console.log('Data connection opened to PC.');
-                statusMsg.textContent = "接続確立！映像を同期しています...";
-                statusMsg.style.color = "#10b981";
+                    if (videoStream) {
+                        peer.call(targetId, videoStream, { metadata: { camId: selectedCamId } });
+                    }
 
-                // 【Bug修正: iOS対策】PC接続の瞬間に video.play() をもう一度呼んでiOSを動かす
-                video.play().catch(() => {});
+                    if (!isEngineRunning) startDetectionEngine();
+                });
 
-                // 2. 映像ストリームをPCに発信する
-                if (videoStream) {
-                    console.log('Calling PC with video stream...');
-                    peer.call(targetId, videoStream);
-                }
-
-                // 3. 軌道追跡アルゴリズムを起動
-                startDetectionEngine();
-            });
-
-            dataConn.on('error', (err) => {
-                statusMsg.textContent = "接続エラー: PC側のIDが見つかりません。";
-                console.error('PeerJS connection error:', err);
-            });
-
-            dataConn.on('close', () => {
-                statusMsg.textContent = "PC接続が切断されました。";
-                statusMsg.style.color = "#f43f5e";
-            });
+                dataConn.on('error', () => {
+                    statusMsg.textContent = "接続エラー: PCキーを再確認してください";
+                    statusMsg.style.color = "#ef4444";
+                });
+            } catch(e) {
+                statusMsg.textContent = "接続設定エラー";
+            }
         };
 
-        // --- ⚽ Complete Auto・軌道ベクトル検知（物理フィルター） ---
+        // 🛡️ 高速・軽量化 動体検知エンジン（防弾仕様）
         function startDetectionEngine() {
+            isEngineRunning = true;
             let lastFrameData = null;
-            let trajectoryStack = []; // 直近のボール候補座標をストック
+            let history = [];
 
-            function processVideoFrame() {
-                if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                    // キャンバスサイズを映像に合わせる
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const PROC_W = 320;
+            const PROC_H = 240;
 
-                    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const currentPixels = frame.data;
-
-                    // 1つ前のフレームがない場合の初期化
-                    if (!lastFrameData || lastFrameData.length !== currentPixels.length) {
-                        lastFrameData = new Uint8ClampedArray(currentPixels.length);
-                        lastFrameData.set(currentPixels);
-                        requestAnimationFrame(processVideoFrame);
-                        return;
-                    }
-
-                    // 1. フレーム間差分による動体検知
-                    let weightX = 0;
-                    let weightY = 0;
-                    let motionCount = 0;
-
-                    // スマホ画面の端っこ10%はノイズカットゾーン(ROI: Region of Interest)とする
-                    const minX = Math.floor(canvas.width * 0.1);
-                    const maxX = Math.floor(canvas.width * 0.9);
-                    const minY = Math.floor(canvas.height * 0.1);
-                    const maxY = Math.floor(canvas.height * 0.9);
-
-                    // (Bug修正) グローバル変数 diffThreshold を使用
-
-                    // 4px飛ばしで超高速スキャン (fps優先)
-                    for (let y = 0; y < canvas.height; y += 4) {
-                        for (let x = 0; x < canvas.width; x += 4) {
-                            const idx = (y * canvas.width + x) * 4;
-
-                            // RGBの差分の合計（輝度変化に近い簡易計算）
-                            const rDiff = Math.abs(currentPixels[idx] - lastFrameData[idx]);
-                            const gDiff = Math.abs(currentPixels[idx+1] - lastFrameData[idx+1]);
-                            const bDiff = Math.abs(currentPixels[idx+2] - lastFrameData[idx+2]);
-
-                            if (rDiff + gDiff + bDiff > diffThreshold) {
-                                // ROI（中央エリア）内だけを見る
-                                if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
-                                    weightX += x;
-                                    weightY += y;
-                                    motionCount++;
-                                }
-                            }
+            function processFrame() {
+                try {
+                    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                        if (canvas.width !== PROC_W) {
+                            canvas.width = PROC_W;
+                            canvas.height = PROC_H;
                         }
-                    }
 
-                    const timeNow = performance.now();
+                        ctx.drawImage(video, 0, 0, PROC_W, PROC_H);
+                        const frame = ctx.getImageData(0, 0, PROC_W, PROC_H);
+                        const curr = frame.data;
 
-                    // 動体（ボールらしきもの）のサイズ制限 (おもちゃのボール〜硬式、150kmブレまで対応)
-                    if (motionCount > 5 && motionCount < 500) {
-                        const bX = weightX / motionCount; // 動体の中心座標(ピクセル)
-                        const bY = weightY / motionCount;
+                        if (lastFrameData && lastFrameData.length === curr.length) {
+                            let sumX = 0, sumY = 0, count = 0;
 
-                        trajectoryStack.push({ x: bX, y: bY, size: motionCount, t: timeNow });
+                            for (let y = 10; y < PROC_H - 10; y += 3) {
+                                for (let x = 10; x < PROC_W - 10; x += 3) {
+                                    const idx = (y * PROC_W + x) * 4;
+                                    const diff = Math.abs(curr[idx] - lastFrameData[idx]) +
+                                                 Math.abs(curr[idx+1] - lastFrameData[idx+1]) +
+                                                 Math.abs(curr[idx+2] - lastFrameData[idx+2]);
 
-                        // 直近5フレームの移動履歴を保持 (約0.1秒分)
-                        if (trajectoryStack.length > 5) trajectoryStack.shift();
-
-                        // --- 🚀 【核心】ベクトル物理特性フィルター ---
-                        if (trajectoryStack.length >= 3) {
-                            const p1 = trajectoryStack[trajectoryStack.length - 3];
-                            const p2 = trajectoryStack[trajectoryStack.length - 2];
-                            const p3 = trajectoryStack[trajectoryStack.length - 1];
-
-                            // 進むベクトル（矢印）を計算
-                            const v1x = p2.x - p1.x;
-                            const v1y = p2.y - p1.y;
-                            const v2x = p3.x - p2.x;
-                            const v2y = p3.y - p2.y;
-
-                            // ベクトルの長さ（移動距離）
-                            const d1 = Math.sqrt(v1x*v1x + v1y*v1y);
-                            const d2 = Math.sqrt(v2x*v2x + v2y*v2y);
-
-                            // バグ弾きフィルタ①: 移動速度の物理妥当性 (短すぎ＝ノイズ、長すぎ＝テレポートを弾く)
-                            // 画面解像度依存だが、640x480で4〜120pxは1コマ(16ms)での移動として妥当
-                            const hasValidPhysics = (d1 > 4 && d1 < 120) && (d2 > 4 && d2 < 120);
-
-                            if (hasValidPhysics && d1 > 0 && d2 > 0) {
-                                // 2つの矢印のなす角をコサイン類似度で算出 (直進性フィルタ)
-                                const dot = v1x*v2x + v1y*v2y;
-                                const cosTheta = dot / (d1 * d2);
-
-                                // バグ弾きフィルタ②: コサイン類似度が0.85以上（ブレ角が30度未満のなめらかな軌道）
-                                // かつ、野球のボールなので基本「下方向に沈む(yがプラス方向に移動)」
-                                if (cosTheta > 0.85 && v2y > 2) {
-                                    
-                                    // 画面上に緑サークルを描画（検知中であることを視覚フィードバック）
-                                    ctx.beginPath();
-                                    ctx.arc(p3.x, p3.y, 20, 0, 2 * Math.PI);
-                                    ctx.fillStyle = "#10b981"; // 緑色のターゲット
-                                    ctx.fill();
-
-                                    // 【核心】PCサーバーに正規化された座標(0.0 〜 1.0)を送信！
-                                    const normU = p3.x / canvas.width;
-                                    const normV = p3.y / canvas.height;
-
-                                    if (dataConn && dataConn.open) {
-                                        dataConn.send({ u: normU, v: normV });
+                                    if (diff > 90) {
+                                        sumX += x; sumY += y; count++;
                                     }
                                 }
                             }
-                        }
-                    } else {
-                        // 動きが消えた場合は履歴をゆっくりクリア
-                        if (trajectoryStack.length > 0) trajectoryStack.shift();
-                    }
 
-                    // 今回のフレームを「前のフレーム」として保存
-                    lastFrameData.set(currentPixels);
+                            // ノイズ（手振れ・影）弾きフィルタ: 3〜120ピクセル範囲のまとまりのみボールと判別
+                            if (count >= 3 && count <= 120) {
+                                const avgX = sumX / count;
+                                const avgY = sumY / count;
+
+                                history.push({ x: avgX, y: avgY, t: performance.now() });
+                                if (history.length > 4) history.shift();
+
+                                if (history.length >= 3) {
+                                    const p1 = history[history.length - 3];
+                                    const p2 = history[history.length - 2];
+                                    const p3 = history[history.length - 1];
+
+                                    const dx1 = p2.x - p1.x, dy1 = p2.y - p1.y;
+                                    const dx2 = p3.x - p2.x, dy2 = p3.y - p2.y;
+                                    const dist1 = Math.sqrt(dx1*dx1 + dy1*dy1);
+                                    const dist2 = Math.sqrt(dx2*dx2 + dy2*dy2);
+
+                                    // 直線移動チェック（ノイズのランダムな跳ねを除外）
+                                    if (dist1 > 2 && dist2 > 2) {
+                                        const dot = (dx1*dx2 + dy1*dy2) / (dist1 * dist2);
+                                        if (dot > 0.75) {
+                                            ctx.beginPath();
+                                            ctx.arc(p3.x, p3.y, 8, 0, 2 * Math.PI);
+                                            ctx.fillStyle = "#10b981";
+                                            ctx.fill();
+
+                                            if (dataConn && dataConn.open) {
+                                                dataConn.send({
+                                                    u: p3.x / PROC_W,
+                                                    v: p3.y / PROC_H
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                if (history.length > 0) history.shift();
+                            }
+                        }
+
+                        if (!lastFrameData || lastFrameData.length !== curr.length) {
+                            lastFrameData = new Uint8ClampedArray(curr.length);
+                        }
+                        lastFrameData.set(curr);
+                    }
+                } catch(e) {
+                    // ループ中の例外で停止させない
                 }
-                // 次フレームのループ
-                requestAnimationFrame(processVideoFrame);
+                requestAnimationFrame(processFrame);
             }
-            requestAnimationFrame(processVideoFrame);
+            requestAnimationFrame(processFrame);
         }
     </script>
 </body>
