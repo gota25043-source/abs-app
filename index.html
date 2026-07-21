@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Hawk-Eye DIY: 3Dマルチカメラ弾道測定システム</title>
+    <title>Hawk-Eye DIY: 完全防弾版 3D投球判定システム</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
@@ -16,7 +16,6 @@
             gap: 15px;
             overflow: hidden;
         }
-        /* レイアウト */
         #left-panel {
             width: 350px;
             background: #1e293b;
@@ -24,7 +23,7 @@
             padding: 15px;
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 12px;
             overflow-y: auto;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
@@ -46,7 +45,7 @@
         }
         h2 {
             margin: 0;
-            font-size: 16px;
+            font-size: 15px;
             color: #38bdf8;
             border-left: 4px solid #38bdf8;
             padding-left: 8px;
@@ -58,7 +57,6 @@
             padding: 12px;
             border: 1px solid #334155;
         }
-        /* カメラプレビューグリッド */
         #camera-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -79,7 +77,7 @@
         .camera-video {
             width: 100%;
             height: 100%;
-            object-fit: fill;
+            object-fit: fill; /* 画面サイズと座標系の完全一致 */
         }
         .camera-overlay {
             position: absolute;
@@ -94,14 +92,13 @@
             position: absolute;
             top: 5px;
             left: 5px;
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.75);
             padding: 3px 8px;
             border-radius: 4px;
             font-size: 11px;
             font-weight: bold;
             z-index: 20;
         }
-        /* キャリブレーションツール */
         .calib-dot {
             position: absolute;
             width: 12px;
@@ -111,6 +108,7 @@
             border-radius: 50%;
             transform: translate(-50%, -50%);
             z-index: 15;
+            pointer-events: none;
         }
         .calib-dot-label {
             position: absolute;
@@ -120,8 +118,8 @@
             transform: translate(8px, -15px);
             text-shadow: 0 0 4px black;
             z-index: 16;
+            pointer-events: none;
         }
-        /* グラフエリア */
         .chart-container {
             flex-grow: 1;
             background: #0f172a;
@@ -133,7 +131,6 @@
             width: 100%;
             height: 100%;
         }
-        /* スコア表示 */
         #metric-board {
             display: flex;
             justify-content: space-around;
@@ -177,13 +174,13 @@
     <div id="left-panel">
         <div class="card">
             <h2>① システム接続キー</h2>
-            <div style="font-size: 28px; font-weight: bold; text-align: center; color: #f59e0b; margin: 10px 0;" id="master-id">----</div>
+            <div style="font-size: 28px; font-weight: bold; text-align: center; color: #f59e0b; margin: 8px 0;" id="master-id">----</div>
             <div style="font-size: 11px; color: #94a3b8; text-align: center;">スマホ側にこの4桁を入力して接続</div>
         </div>
 
         <div class="card" style="display: flex; flex-direction: column; gap: 8px;">
             <h2>② 空間初期設定 (DLT)</h2>
-            <div style="font-size: 12px; color: #cbd5e1;">スマホを固定し、各カメラで以下の基準点を順番にタップしてください。</div>
+            <div style="font-size: 11px; color: #cbd5e1;">画面のカメラをタップして6点の設定を行ってください。</div>
             
             <select id="active-cam-select" style="padding: 6px; background: #334155; color: white; border: none; border-radius: 4px;">
                 <option value="1">カメラ 1 (マウンド真後ろ)</option>
@@ -191,10 +188,9 @@
                 <option value="3">カメラ 3 (三塁側斜め前)</option>
             </select>
 
-            <div id="calib-points-status" style="font-size: 12px; margin-top: 5px;">
-                </div>
+            <div id="calib-points-status" style="font-size: 11px; margin-top: 2px;"></div>
             
-            <button class="btn btn-success" id="calc-dlt-btn" style="margin-top: 8px;">カメラ行列を確定・保存</button>
+            <button class="btn btn-success" id="calc-dlt-btn" style="margin-top: 4px;">カメラ行列を確定・保存</button>
         </div>
 
         <div class="card">
@@ -217,17 +213,17 @@
     <div id="center-panel">
         <div id="camera-grid">
             <div class="camera-container" id="cam-container-1">
-                <span class="cam-label" style="color: #60a5fa;">CAM 1 (真後ろ) <span id="cam-fps-1">-- fps</span></span>
+                <span class="cam-label" style="color: #60a5fa;">CAM 1 (真後ろ)</span>
                 <video class="camera-video" id="video-1" autoplay playsinline muted></video>
                 <div class="camera-overlay" id="overlay-1"></div>
             </div>
             <div class="camera-container" id="cam-container-2">
-                <span class="cam-label" style="color: #34d399;">CAM 2 (一塁側) <span id="cam-fps-2">-- fps</span></span>
+                <span class="cam-label" style="color: #34d399;">CAM 2 (一塁側)</span>
                 <video class="camera-video" id="video-2" autoplay playsinline muted></video>
                 <div class="camera-overlay" id="overlay-2"></div>
             </div>
             <div class="camera-container" id="cam-container-3">
-                <span class="cam-label" style="color: #a78bfa;">CAM 3 (三塁側) <span id="cam-fps-3">-- fps</span></span>
+                <span class="cam-label" style="color: #a78bfa;">CAM 3 (三塁側)</span>
                 <video class="camera-video" id="video-3" autoplay playsinline muted></video>
                 <div class="camera-overlay" id="overlay-3"></div>
             </div>
@@ -265,14 +261,14 @@
     </div>
 
     <script>
-        // --- 基準点の実世界3D座標定義 (単位: メートル) ---
+        // 基準座標データ
         const CALIB_3D_POINTS = [
-            { X: -0.216, Y: 0.0, Z: 0.0 },     // P1: ホーム左角
-            { X: 0.216,  Y: 0.0, Z: 0.0 },     // P2: ホーム右角
-            { X: -0.71,  Y: 0.0, Z: 0.91 },    // P3: 左打席前内角
-            { X: 0.71,   Y: 0.0, Z: 0.91 },    // P4: 右打席前内角
-            { X: 0.0,    Y: 1.0, Z: 0.0 },     // P5: ホーム中心に置いたスタンドの天辺(高さ1m)
-            { X: 0.71,   Y: 1.0, Z: 0.91 }     // P6: 右打席角に置いたスタンドの天辺(高さ1m)
+            { X: -0.216, Y: 0.0, Z: 0.0 },
+            { X: 0.216,  Y: 0.0, Z: 0.0 },
+            { X: -0.71,  Y: 0.0, Z: 0.91 },
+            { X: 0.71,   Y: 0.0, Z: 0.91 },
+            { X: 0.0,    Y: 1.0, Z: 0.0 },
+            { X: 0.71,   Y: 1.0, Z: 0.91 }
         ];
 
         const POINT_NAMES = [
@@ -284,87 +280,66 @@
             "P6: 右打席角棒天辺 (高さ1m)"
         ];
 
-        // 状態変数
         let myId = Math.floor(1000 + Math.random() * 9000);
-        // スマホ側と完全に一致させるように修正
         const peer = new Peer(`abs-master-${myId}`);
         let connections = {};
+        let peerToCamMap = {};
         
-        // キャリブレーション用座標プール: { camId: [ {u, v}, ... ] }
         let clickedCoords = { 1: [], 2: [], 3: [] };
         let activePointIdx = 0;
-
-        // 計算された各カメラの投影行列 (3x4 = 12要素)
         let cameraMatrices = { 1: null, 2: null, 3: null };
-
-        // 各カメラからの2次元データキュー { camId: [ {u, v, t}, ... ] }
         let detectionQueues = { 1: [], 2: [], 3: [] };
-
-        // 解析された3D軌道データ
         let trajectory3D = [];
+        let lastTriangulatedTime = 0;
 
         peer.on('open', (id) => {
-            // 画面には分かりやすく4桁の数字だけを表示
             document.getElementById('master-id').textContent = myId;
-            console.log('PeerJS Master Open. ID:', id);
+            console.log('Master System Ready. ID:', id);
         });
 
-        // WebRTC 映像受信
+        peer.on('connection', (conn) => {
+            const camId = (conn.metadata && conn.metadata.camId) ? conn.metadata.camId : (Object.keys(connections).length + 1);
+            connections[camId] = conn;
+            peerToCamMap[conn.peer] = camId;
+
+            conn.on('data', (data) => {
+                try {
+                    if (data && typeof data.u === 'number' && typeof data.v === 'number') {
+                        detectionQueues[camId].push({
+                            u: data.u,
+                            v: data.v,
+                            t: performance.now()
+                        });
+                        if (detectionQueues[camId].length > 30) detectionQueues[camId].shift();
+                    }
+                } catch (e) {
+                    // 通信パケットエラー自動無視
+                }
+            });
+
+            conn.on('close', () => {
+                delete connections[camId];
+                delete peerToCamMap[conn.peer];
+                document.getElementById(`cam-container-${camId}`).classList.remove('active');
+                cameraMatrices[camId] = null;
+            });
+        });
+
         peer.on('call', (call) => {
             call.answer();
             call.on('stream', (remoteStream) => {
-                console.log('Video stream received.');
-                // client側からカメラ番号がメタデータとして来るように設計するが、
-                // 接続順でカメラ番号を割り当てる (簡易実装)
-                let camId = Object.keys(connections).length; 
-                // peer.on('connection', ...) が先に走るため、connections の長さを使う
-                // データの接続(peer.connect)の後に映像の接続(peer.call)が来る想定
+                let camId = (call.metadata && call.metadata.camId) ? call.metadata.camId : peerToCamMap[call.peer];
+                if (!camId) camId = 1;
 
                 const videoEl = document.getElementById(`video-${camId}`);
                 if (videoEl) {
                     videoEl.srcObject = remoteStream;
-                    videoEl.play().catch(e => console.log("Stream play failed:", e));
+                    videoEl.play().catch(() => {});
                     document.getElementById(`cam-container-${camId}`).classList.add('active');
                 }
             });
         });
 
-        // WebRTC データ受信
-        peer.on('connection', (conn) => {
-            console.log('Data connection received from:', conn.peer);
-            let camId = Object.keys(connections).length + 1;
-            if (camId > 3) return; // 3台まで
-
-            connections[camId] = conn;
-
-            conn.on('data', (data) => {
-                if (data.u !== undefined && data.v !== undefined) {
-                    // 各カメラのキューにタイムスタンプと共に保存
-                    detectionQueues[camId].push({
-                        u: data.u,
-                        v: data.v,
-                        t: performance.now()
-                    });
-                    
-                    // キューの長さを制限 (直近30コマ、約0.5秒分)
-                    if (detectionQueues[camId].length > 30) {
-                        detectionQueues[camId].shift();
-                    }
-
-                    // リアルタイム3D三角測量を走らせる (トリガーカメラからのデータを受け取った時)
-                    // (Bug修正): いずれかのカメラからデータが届いたら、全稼働カメラについて補間・測量を試みる
-                }
-            });
-
-            conn.on('close', () => {
-                console.log(`Connection closed: Cam ${camId}`);
-                delete connections[camId];
-                document.getElementById(`cam-container-${camId}`).classList.remove('active');
-                cameraMatrices[camId] = null; // 行列もリセット
-            });
-        });
-
-        // --- UI キャリブレーション点クリック処理 ---
         function renderPointStatus() {
             const container = document.getElementById('calib-points-status');
             container.innerHTML = "";
@@ -373,9 +348,8 @@
 
             POINT_NAMES.forEach((name, idx) => {
                 const div = document.createElement('div');
-                div.style.padding = "4px";
-                div.style.fontSize = "12px";
-                div.style.borderRadius = "4px";
+                div.style.padding = "3px";
+                div.style.borderRadius = "3px";
                 div.style.marginBottom = "2px";
                 
                 if (idx === activePointIdx) {
@@ -404,23 +378,16 @@
         [1, 2, 3].forEach(camId => {
             const overlay = document.getElementById(`overlay-${camId}`);
             overlay.addEventListener('click', (e) => {
-                const selectedCam = document.getElementById('active-cam-select').value;
-                if (parseInt(selectedCam) !== camId) {
-                    alert(`現在設定対象になっているのは「カメラ ${selectedCam}」です。セレクトボックスを変更してください。`);
-                    return;
-                }
+                const selectedCam = parseInt(document.getElementById('active-cam-select').value);
+                if (selectedCam !== camId) return;
 
                 const rect = overlay.getBoundingClientRect();
                 const u = (e.clientX - rect.left) / rect.width;
                 const v = (e.clientY - rect.top) / rect.height;
 
                 clickedCoords[camId][activePointIdx] = { u, v };
+                activePointIdx = (activePointIdx < 5) ? activePointIdx + 1 : 0;
                 
-                if (activePointIdx < 5) {
-                    activePointIdx++;
-                } else {
-                    activePointIdx = 0; // ループ
-                }
                 renderPointStatus();
                 redrawOverlayPoints();
             });
@@ -429,9 +396,7 @@
         function redrawOverlayPoints() {
             [1, 2, 3].forEach(camId => {
                 const overlay = document.getElementById(`overlay-${camId}`);
-                // 既存の点をクリア
-                overlay.querySelectorAll('.calib-dot').forEach(el => el.remove());
-                overlay.querySelectorAll('.calib-dot-label').forEach(el => el.remove());
+                overlay.querySelectorAll('.calib-dot, .calib-dot-label').forEach(el => el.remove());
 
                 if (clickedCoords[camId]) {
                     clickedCoords[camId].forEach((pt, idx) => {
@@ -455,418 +420,297 @@
 
         renderPointStatus();
 
-        // --- 🚀 【数学コア: Bug修正済】DLT (カメラ投影行列の計算) ---
+        // 🛡️ DLT計算（防弾仕様）
         document.getElementById('calc-dlt-btn').onclick = () => {
             const activeCam = document.getElementById('active-cam-select').value;
             const pts = clickedCoords[activeCam];
 
             if (!pts || pts.length < 6) {
-                alert("6つの基準点をすべて設定してから計算してください！");
+                alert("6箇所の基準点をすべて画面上でタップしてください。");
                 return;
             }
 
-            // A matrix (11x11), B matrix (11x1) を生成
-            // DLT 方程式: A * w = B, ここで w = [m11, m12, ... m33] (m34=1とする)
-            let A = [];
-            let B = [];
-
-            for (let i = 0; i < 6; i++) {
-                let p3d = CALIB_3D_POINTS[i];
-                let p2d = pts[i];
-                let X = p3d.X, Y = p3d.Y, Z = p3d.Z;
-                let u = p2d.u, v = p2d.v;
-
-                // 方程式 1 (u 座標)
-                // m11*X + m12*Y + m13*Z + m14 - u*m31*X - u*m32*Y - u*m33*Z = u (m34=1)
-                A.push([X, Y, Z, 1, 0, 0, 0, 0, -u*X, -u*Y, -u*Z]);
-                B.push(u);
-
-                // 方程式 2 (v 座標)
-                // m21*X + m22*Y + m23*Z + m24 - v*m31*X - v*m32*Y - v*m33*Z = v (m34=1)
-                A.push([0, 0, 0, 0, X, Y, Z, 1, -v*X, -v*Y, -v*Z]);
-                B.push(v);
-            }
-
-            // 11元一次方程式にするため、最後の式の1つ（12個中11個）を使用
-            A = A.slice(0, 11);
-            B = B.slice(0, 11);
-
             try {
-                // ガウス消去法で解く
-                let w = solveLinearSystem(A, B);
-                // w = [m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33] (m34 = 1.0)
-                // カメラ投影行列 (3x4)
+                let A = [], B = [];
+                for (let i = 0; i < 6; i++) {
+                    let p3d = CALIB_3D_POINTS[i];
+                    let p2d = pts[i];
+                    let X = p3d.X, Y = p3d.Y, Z = p3d.Z;
+                    let u = p2d.u, v = p2d.v;
+
+                    A.push([X, Y, Z, 1, 0, 0, 0, 0, -u*X, -u*Y, -u*Z]);
+                    B.push(u);
+                    A.push([0, 0, 0, 0, X, Y, Z, 1, -v*X, -v*Y, -v*Z]);
+                    B.push(v);
+                }
+
+                let w = solveLeastSquaresNormal(A, B);
+                if (!w || w.some(isNaN)) throw new Error("Invalid matrix result");
+
                 cameraMatrices[activeCam] = [
-                    w[0], w[1], w[2], w[3],   // Row 1
-                    w[4], w[5], w[6], w[7],   // Row 2
-                    w[8], w[9], w[10], 1.0    // Row 3
+                    w[0], w[1], w[2], w[3],
+                    w[4], w[5], w[6], w[7],
+                    w[8], w[9], w[10], 1.0
                 ];
-                console.log(`Camera ${activeCam} Matrices calculated:`, cameraMatrices[activeCam]);
-                alert(`カメラ ${activeCam} の3次元空間キャリブレーションに成功しました！`);
-                document.getElementById(`overlay-${activeCam}`).style.background = "rgba(16, 185, 129, 0.1)";
+
+                alert(`カメラ ${activeCam} の設定が完了しました！`);
+                document.getElementById(`cam-container-${activeCam}`).style.borderColor = "#10b981";
             } catch (err) {
-                alert("キャリブレーション計算に失敗しました。基準点のクリック位置が不自然です。配置し直してください。");
-                console.error(err);
-                document.getElementById(`overlay-${activeCam}`).style.background = "rgba(239, 68, 68, 0.1)";
+                alert("位置の計算に失敗しました。タップした位置が正しくない可能性があります。やり直してください。");
             }
         };
 
-        // 【数学コア: Bug修正済】ガウス消去法ソルバー
-        // A*x = B を解く
+        function solveLeastSquaresNormal(A, B) {
+            try {
+                let rows = A.length, cols = A[0].length;
+                let AtA = Array.from({length: cols}, () => new Array(cols).fill(0));
+                let AtB = new Array(cols).fill(0);
+
+                for (let r = 0; r < rows; r++) {
+                    for (let i = 0; i < cols; i++) {
+                        for (let j = 0; j < cols; j++) {
+                            AtA[i][j] += A[r][i] * A[r][j];
+                        }
+                        AtB[i] += A[r][i] * B[r];
+                    }
+                }
+                return solveLinearSystem(AtA, AtB);
+            } catch (e) {
+                return null;
+            }
+        }
+
         function solveLinearSystem(A_in, B_in) {
             let n = B_in.length;
-            // A と B をディープコピーして破壊を防ぐ
             let A = A_in.map(row => [...row]);
             let B = [...B_in];
 
             for (let i = 0; i < n; i++) {
-                // 1. ピボッティング (最大値を探す)
-                let maxEl = Math.abs(A[i][i]);
-                let maxRow = i;
+                let maxEl = Math.abs(A[i][i]), maxRow = i;
                 for (let k = i + 1; k < n; k++) {
                     if (Math.abs(A[k][i]) > maxEl) {
                         maxEl = Math.abs(A[k][i]);
                         maxRow = k;
                     }
                 }
-                // 行を入れ替える
-                let tmpA = A[maxRow];
-                A[maxRow] = A[i];
-                A[i] = tmpA;
-                let tmpB = B[maxRow];
-                B[maxRow] = B[i];
-                B[i] = tmpB;
+                let tmpA = A[maxRow]; A[maxRow] = A[i]; A[i] = tmpA;
+                let tmpB = B[maxRow]; B[maxRow] = B[i]; B[i] = tmpB;
 
-                if (Math.abs(A[i][i]) < 1e-10) {
-                    throw new Error("Matrix is singular or near-singular. Calibration points are not good.");
-                }
+                if (Math.abs(A[i][i]) < 1e-12) return null;
 
-                // 2. 前進消去 (Bug修正済ロジック)
                 for (let k = i + 1; k < n; k++) {
                     let c = A[k][i] / A[i][i];
-                    for (let j = i; j < n; j++) {
-                        A[k][j] -= c * A[i][j];
-                    }
+                    for (let j = i; j < n; j++) A[k][j] -= c * A[i][j];
                     B[k] -= c * B[i];
                 }
             }
-            // 3. 後退代入
             let x = new Array(n).fill(0);
             for (let i = n - 1; i >= 0; i--) {
                 let sum = 0;
-                for (let k = i + 1; k < n; k++) {
-                    sum += A[i][k] * x[k];
-                }
+                for (let k = i + 1; k < n; k++) sum += A[i][k] * x[k];
                 x[i] = (B[i] - sum) / A[i][i];
             }
             return x;
         }
 
-        // --- 🚀 【数学コア: Bug修正済】非同期補間 & 3D三角測量ループ ---
-        // メイン処理ループ (アニメーションフレーム同期)
+        // 🛡️ メイン3D演算ループ（防弾仕様）
         function triangulationLoop() {
-            // DLT行列が確定しているカメラ（稼働中カメラ）を特定
-            const calibratedCamIds = [1, 2, 3].filter(id => cameraMatrices[id] !== null);
-            if (calibratedCamIds.length < 2) {
-                // 2台以上のカメラがキャリブレーションされていないと動かさない
-                requestAnimationFrame(triangulationLoop);
-                return;
-            }
+            try {
+                const calibratedCamIds = [1, 2, 3].filter(id => cameraMatrices[id] !== null);
+                if (calibratedCamIds.length >= 2) {
+                    let triggerCamId = calibratedCamIds.includes(1) ? 1 : calibratedCamIds[0];
+                    const triggerQueue = detectionQueues[triggerCamId];
 
-            // トリガーカメラ（最新データを基準にする）として「1」を優先、なければ「2」
-            let triggerCamId = calibratedCamIds.includes(1) ? 1 : calibratedCamIds[0];
-            
-            const triggerQueue = detectionQueues[triggerCamId];
-            if (!triggerQueue || triggerQueue.length === 0) {
-                requestAnimationFrame(triangulationLoop);
-                return;
-            }
-
-            // トリガーカメラの最新の検出データ時刻をターゲットにする
-            const latestObs = triggerQueue[triggerQueue.length - 1];
-            const targetTime = latestObs.t;
-
-            // 他の稼働中カメラについて、このtargetTimeでの座標を「時間軸から補間」する
-            let synchronizedObs = {};
-            synchronizedObs[triggerCamId] = { u: latestObs.u, v: latestObs.v };
-
-            for (let camId of calibratedCamIds) {
-                if (camId === triggerCamId) continue;
-                
-                const q = detectionQueues[camId];
-                if (!q || q.length < 2) continue; // 補間には最低2枚の古いフレームが必要
-
-                // targetTimeをまたぐ前後のコマをキューから高速探索（後ろから）
-                let before = null;
-                let after = null;
-                for (let i = q.length - 1; i >= 0; i--) {
-                    if (q[i].t <= targetTime) {
-                        before = q[i];
-                        break;
-                    }
-                }
-                for (let i = 0; i < q.length; i++) {
-                    if (q[i].t >= targetTime) {
-                        after = q[i];
-                        break;
-                    }
-                }
-
-                // 前後のコマが見つかり、時間差が許容範囲(例: 100ms以内)の時のみ線形補間
-                if (before && after && (after.t - before.t) < 100) {
-                    const duration = after.t - before.t;
-                    const factor = duration === 0 ? 0.5 : (targetTime - before.t) / duration;
-                    const interpU = before.u + factor * (after.u - before.u);
-                    const interpV = before.v + factor * (after.v - before.v);
-                    synchronizedObs[camId] = { u: interpU, v: interpV };
-                }
-            }
-
-            // 【Bug修正】「補間に成功したカメラデータ」が2台以上揃ったら三角測量を実行
-            const syncedIds = Object.keys(synchronizedObs).map(Number);
-            if (syncedIds.length >= 2) {
-                let A_tri = [];
-                let B_tri = [];
-
-                syncedIds.forEach(id => {
-                    const M = cameraMatrices[id];
-                    const obs = synchronizedObs[id];
-                    const u = obs.u;
-                    const v = obs.v;
-
-                    // 三角測量方程式の構築 (A_tri * P = B_tri)
-                    // (x*m31 - m11)X + (x*m32 - m12)Y + (x*m33 - m13)Z = m14 - x*m34 (Bug修正済、m34=1)
-                    A_tri.push([ u*M[8] - M[0],  u*M[9] - M[1],  u*M[10] - M[2] ]);
-                    B_tri.push( M[3] - u );
-
-                    // (y*m31 - m21)X + (y*m32 - m22)Y + (y*m33 - m23)Z = m24 - y*m34 (Bug修正済、m34=1)
-                    A_tri.push([ v*M[8] - M[4],  v*M[9] - M[5],  v*M[10] - M[6] ]);
-                    B_tri.push( M[7] - v );
-                });
-
-                // 最小二乗法で3次元座標を算出
-                const p3D = solveLeastSquares3D(A_tri, B_tri);
-                if (p3D) {
-                    const [X, Y, Z] = p3D;
-
-                    // --- 数学コア：3D座標の精度判定 (再投影誤差の簡易版) ---
-                    let errorMm = calculateTriangulationError(synchronizedObs, p3D);
-                    document.getElementById('accuracy-text').innerHTML = `${errorMm.toFixed(1)} <span style="font-size:18px;">mm</span>`;
-
-                    // あきらかにグラウンドの枠を超えているエラー値（ノイズ）は弾く (3Dフィルタ)
-                    if (Math.abs(X) < 4 && Y > -0.5 && Y < 3.5 && Z > -2 && Z < 22) {
-                        trajectory3D.push({ X, Y, Z, t: targetTime });
+                    if (triggerQueue && triggerQueue.length > 0) {
+                        const latestObs = triggerQueue[triggerQueue.length - 1];
                         
-                        // 履歴が長すぎる場合は古いものを捨てる (直近1秒分、約60コマ)
-                        if (trajectory3D.length > 60) {
-                            trajectory3D.shift();
-                        }
+                        if (latestObs.t !== lastTriangulatedTime) {
+                            lastTriangulatedTime = latestObs.t;
+                            const targetTime = latestObs.t;
 
-                        // SVGプロットと、判定分析を実行
-                        updatePlots();
-                        analyzePitchMetrics();
+                            let synchronizedObs = {};
+                            synchronizedObs[triggerCamId] = { u: latestObs.u, v: latestObs.v };
+
+                            for (let camId of calibratedCamIds) {
+                                if (camId === triggerCamId) continue;
+                                const q = detectionQueues[camId];
+                                if (!q || q.length < 2) continue;
+
+                                let before = null, after = null;
+                                for (let i = q.length - 1; i >= 0; i--) {
+                                    if (q[i].t <= targetTime) { before = q[i]; break; }
+                                }
+                                for (let i = 0; i < q.length; i++) {
+                                    if (q[i].t >= targetTime) { after = q[i]; break; }
+                                }
+
+                                if (before && after && (after.t - before.t) < 120) {
+                                    const duration = after.t - before.t;
+                                    const factor = duration === 0 ? 0.5 : (targetTime - before.t) / duration;
+                                    synchronizedObs[camId] = {
+                                        u: before.u + factor * (after.u - before.u),
+                                        v: before.v + factor * (after.v - before.v)
+                                    };
+                                }
+                            }
+
+                            const syncedIds = Object.keys(synchronizedObs).map(Number);
+                            if (syncedIds.length >= 2) {
+                                let A_tri = [], B_tri = [];
+                                syncedIds.forEach(id => {
+                                    const M = cameraMatrices[id];
+                                    const obs = synchronizedObs[id];
+                                    A_tri.push([ obs.u*M[8] - M[0],  obs.u*M[9] - M[1],  obs.u*M[10] - M[2] ]);
+                                    B_tri.push( M[3] - obs.u );
+                                    A_tri.push([ obs.v*M[8] - M[4],  obs.v*M[9] - M[5],  obs.v*M[10] - M[6] ]);
+                                    B_tri.push( M[7] - obs.v );
+                                });
+
+                                const p3D = solveLeastSquares3D(A_tri, B_tri);
+                                if (p3D && !p3D.some(isNaN)) {
+                                    const [X, Y, Z] = p3D;
+                                    if (Math.abs(X) < 5 && Y > -1 && Y < 4 && Z > -2 && Z < 25) {
+                                        trajectory3D.push({ X, Y, Z, t: targetTime });
+                                        if (trajectory3D.length > 50) trajectory3D.shift();
+                                        updatePlots();
+                                        analyzePitchMetrics();
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+            } catch (err) {
+                // 万が一演算エラーが起きてもルーティンを壊さず維持
             }
-
             requestAnimationFrame(triangulationLoop);
         }
 
-        // 最小二乗法ソルバー (A^T * A * P = A^T * B を解く、正規方程式)
         function solveLeastSquares3D(A, B) {
-            let C = [ [0,0,0], [0,0,0], [0,0,0] ]; // C = A^T * A (3x3)
-            let D = [ 0, 0, 0 ]; // D = A^T * B (3x1)
-            let rows = A.length;
-
-            for (let r = 0; r < rows; r++) {
-                let row = A[r];
-                let val = B[r];
-                for (let i = 0; i < 3; i++) {
-                    for (let j = 0; j < 3; j++) {
-                        C[i][j] += row[i] * row[j];
+            try {
+                let C = [[0,0,0],[0,0,0],[0,0,0]], D = [0,0,0], rows = A.length;
+                for (let r = 0; r < rows; r++) {
+                    for (let i = 0; i < 3; i++) {
+                        for (let j = 0; j < 3; j++) C[i][j] += A[r][i] * A[r][j];
+                        D[i] += A[r][i] * B[r];
                     }
-                    D[i] += row[i] * val;
                 }
-            }
+                let det = C[0][0]*(C[1][1]*C[2][2] - C[1][2]*C[2][1]) -
+                          C[0][1]*(C[1][0]*C[2][2] - C[1][2]*C[2][0]) +
+                          C[0][2]*(C[1][0]*C[2][1] - C[1][1]*C[2][0]);
 
-            // クラメルの公式で3x3方程式を高速に解く
-            let det = C[0][0]*(C[1][1]*C[2][2] - C[1][2]*C[2][1]) -
-                      C[0][1]*(C[1][0]*C[2][2] - C[1][2]*C[2][0]) +
-                      C[0][2]*(C[1][0]*C[2][1] - C[1][1]*C[2][0]);
+                if (Math.abs(det) < 1e-10) return null;
 
-            if (Math.abs(det) < 1e-10) return null; // 特異行列（測量不可）
+                let detX = D[0]*(C[1][1]*C[2][2] - C[1][2]*C[2][1]) - C[0][1]*(D[1]*C[2][2] - C[1][2]*D[2]) + C[0][2]*(D[1]*C[2][1] - C[1][1]*D[2]);
+                let detY = C[0][0]*(D[1]*C[2][2] - C[1][2]*D[2]) - D[0]*(C[1][0]*C[2][2] - C[1][2]*C[2][0]) + C[0][2]*(C[1][0]*D[2] - D[1]*C[2][0]);
+                let detZ = C[0][0]*(C[1][1]*D[2] - D[1]*C[2][1]) - C[0][1]*(C[1][0]*D[2] - D[1]*C[2][0]) + D[0]*(C[1][0]*C[2][1] - C[1][1]*D[2]);
 
-            let detX = D[0]*(C[1][1]*C[2][2] - C[1][2]*C[2][1]) -
-                       C[0][1]*(D[1]*C[2][2] - C[1][2]*D[2]) +
-                       C[0][2]*(D[1]*C[2][1] - C[1][1]*D[2]);
-
-            let detY = C[0][0]*(D[1]*C[2][2] - C[1][2]*D[2]) -
-                       D[0]*(C[1][0]*C[2][2] - C[1][2]*C[2][0]) +
-                       C[0][2]*(C[1][0]*D[2] - D[1]*C[2][0]);
-
-            let detZ = C[0][0]*(C[1][1]*D[2] - D[1]*C[2][1]) -
-                       C[0][1]*(C[1][0]*D[2] - D[1]*C[2][0]) +
-                       D[0]*(C[1][0]*C[2][1] - C[1][1]*C[2][0]);
-
-            return [detX / det, detY / det, detZ / det];
+                return [detX / det, detY / det, detZ / det];
+            } catch(e) { return null; }
         }
 
-        // --- 数学コア：3D三角測量誤差の算出 (再投影誤差) ---
-        function calculateTriangulationError(obsSet, p3D) {
-            const X=p3D[0], Y=p3D[1], Z=p3D[2];
-            let sumErrorSq = 0;
-            let count = 0;
-
-            Object.keys(obsSet).forEach(camId => {
-                const M = cameraMatrices[camId];
-                const obs = obsSet[camId];
-
-                // 投影行列で3D座標を2D画面座標(正規化)に戻す
-                const w = M[8]*X + M[9]*Y + M[10]*Z + 1.0;
-                const projectedU = (M[0]*X + M[1]*Y + M[2]*Z + M[3]) / w;
-                const projectedV = (M[4]*X + M[5]*Y + M[6]*Z + M[7]) / w;
-
-                // 実際の観測値とのズレ(ピクセル数ではなく解像度比率)を計算
-                // 簡易的にホームベース幅(0.432m)が画面の30%を占めると仮定してmm換算
-                const du = obs.u - projectedU;
-                const dv = obs.v - projectedV;
-                sumErrorSq += (du*du + dv*dv);
-                count++;
-            });
-
-            if (count === 0) return 0;
-            const rmsErrorRatio = Math.sqrt(sumErrorSq / count); // RMS誤差(解像度比率)
-            
-            // ホームベース幅(0.432m)が画面の正規化座標(0.0〜1.0)で約0.2の幅に映っていると仮定してmmに直す
-            // (真後ろカメラ基準の簡易計算)
-            const baseMm = 432;
-            const estimatedErrorMm = rmsErrorRatio * (baseMm / 0.2); 
-            return estimatedErrorMm;
-        }
-
-        // 測量ループを開始
         requestAnimationFrame(triangulationLoop);
 
-        // --- 📊 判定・球速分析ロジック ---
         let lastLoggedPitchId = "";
         function analyzePitchMetrics() {
-            if (trajectory3D.length < 5) return;
+            if (trajectory3D.length < 4) return;
 
-            // マウンド方向からホーム方向への変化を監視
             const startPt = trajectory3D[0];
             const endPt = trajectory3D[trajectory3D.length - 1];
+            const distance = startPt.Z - endPt.Z;
+            const durationSec = (endPt.t - startPt.t) / 1000;
 
-            const distance = startPt.Z - endPt.Z; // 投げた距離(Zの変化)
-            const durationSec = (endPt.t - startPt.t) / 1000; // かかった時間
-
-            // 簡易球速測定 (距離 / 時間)
-            if (distance > 2.5 && durationSec > 0.05) {
+            if (distance > 0.4 && durationSec > 0.02) {
                 const speedKMH = Math.round((distance / durationSec) * 3.6);
-                if (speedKMH > 40 && speedKMH < 170) {
+                if (speedKMH > 30 && speedKMH < 185) {
                     document.getElementById('speed-text').innerHTML = `${speedKMH} <span style="font-size:18px;">km/h</span>`;
                 }
             }
 
-            // ストライク・ボールの判定 (ボールが Z = 0（ホーム前端）を通過した瞬間を検出)
-            let crossPoint = null;
-            // 軌道履歴の中から、Z=0を跨いだ2つの点を見つける
             for (let i = 0; i < trajectory3D.length - 1; i++) {
-                let p1 = trajectory3D[i];
-                let p2 = trajectory3D[i+1];
+                let p1 = trajectory3D[i], p2 = trajectory3D[i+1];
                 if ((p1.Z >= 0 && p2.Z <= 0) || (p1.Z <= 0 && p2.Z >= 0)) {
-                    // Z=0をまたいだ瞬間
-                    const ratio = p1.Z / (p1.Z - p2.Z); // 線形内挿
+                    const ratio = Math.abs(p1.Z - p2.Z) === 0 ? 0.5 : p1.Z / (p1.Z - p2.Z);
                     const X_at_0 = p1.X + ratio * (p2.X - p1.X);
                     const Y_at_0 = p1.Y + ratio * (p2.Y - p1.Y);
-                    crossPoint = { X: X_at_0, Y: Y_at_0 };
-                    break;
-                }
-            }
 
-            if (crossPoint) {
-                const szLow = parseFloat(document.getElementById('sz-low').value);
-                const szHigh = parseFloat(document.getElementById('sz-high').value);
-                
-                const isStrikeX = Math.abs(crossPoint.X) <= 0.216; // ホームベース幅43.2cmの半分
-                const isStrikeY = crossPoint.Y >= szLow && crossPoint.Y <= szHigh;
+                    const szLow = parseFloat(document.getElementById('sz-low').value) || 0.5;
+                    const szHigh = parseFloat(document.getElementById('sz-high').value) || 1.1;
 
-                const resultEl = document.getElementById('result-text');
-                
-                // 同じ投球に対して何度も判定を読み上げないよう、判定結果と座標からPitchIDを作る
-                const pitchId = `${Math.round(crossPoint.X*100)}-${Math.round(crossPoint.Y*100)}`;
+                    const isStrike = (Math.abs(X_at_0) <= 0.216) && (Y_at_0 >= szLow && Y_at_0 <= szHigh);
+                    const resultEl = document.getElementById('result-text');
+                    const pitchId = `${Math.round(X_at_0*100)}-${Math.round(Y_at_0*100)}`;
 
-                if (lastLoggedPitchId !== pitchId) {
-                    lastLoggedPitchId = pitchId;
-                    if (isStrikeX && isStrikeY) {
-                        resultEl.textContent = "STRIKE!";
-                        resultEl.style.color = "#ef4444";
-                        speak("ストライク！");
-                    } else {
-                        resultEl.textContent = "BALL";
-                        resultEl.style.color = "#10b981";
-                        speak("ボール");
+                    if (lastLoggedPitchId !== pitchId) {
+                        lastLoggedPitchId = pitchId;
+                        if (isStrike) {
+                            resultEl.textContent = "STRIKE!";
+                            resultEl.style.color = "#ef4444";
+                            speak("ストライク");
+                        } else {
+                            resultEl.textContent = "BALL";
+                            resultEl.style.color = "#10b981";
+                            speak("ボール");
+                        }
                     }
+                    break;
                 }
             }
         }
 
         function speak(text) {
-            // 前の発話をキャンセルして最新の声を優先
-            speechSynthesis.cancel();
-            const uttr = new SpeechSynthesisUtterance(text);
-            uttr.lang = "ja-JP";
-            uttr.rate = 1.3; // 少し早口で喋らせて審判らしさを演出
-            speechSynthesis.speak(uttr);
+            try {
+                speechSynthesis.cancel();
+                const uttr = new SpeechSynthesisUtterance(text);
+                uttr.lang = "ja-JP";
+                uttr.rate = 1.2;
+                speechSynthesis.speak(uttr);
+            } catch(e) {}
         }
 
-        // --- 📈 SVGによる軌道の描画更新 ---
         function updatePlots() {
-            const svgFront = document.getElementById('svg-front');
-            const svgTop = document.getElementById('svg-top');
-            const svgSide = document.getElementById('svg-side');
+            try {
+                const svgFront = document.getElementById('svg-front');
+                const svgTop = document.getElementById('svg-top');
+                const svgSide = document.getElementById('svg-side');
 
-            const szLow = parseFloat(document.getElementById('sz-low').value);
-            const szHigh = parseFloat(document.getElementById('sz-high').value);
+                const szLow = parseFloat(document.getElementById('sz-low').value) || 0.5;
+                const szHigh = parseFloat(document.getElementById('sz-high').value) || 1.1;
 
-            // 1. 正面ストライクゾーンのシルエット
-            svgFront.innerHTML = `
-                <polygon points="-0.216,0 -0.216,0.1 0,0.2 0.216,0.1 0.216,0" fill="#334155" opacity="0.3"/>
-                <rect x="-0.216" y="${szLow}" width="0.432" height="${szHigh - szLow}" fill="none" stroke="#38bdf8" stroke-width="0.02" stroke-dasharray="0.05 0.05"/>
-            `;
+                svgFront.innerHTML = `
+                    <polygon points="-0.216,1.5 -0.216,1.4 0,1.3 0.216,1.4 0.216,1.5" fill="#334155" opacity="0.3"/>
+                    <rect x="-0.216" y="${1.5 - szHigh}" width="0.432" height="${Math.max(0.01, szHigh - szLow)}" fill="none" stroke="#38bdf8" stroke-width="0.02" stroke-dasharray="0.05 0.05"/>
+                `;
 
-            // 2. 真上平面図の再描画
-            svgTop.innerHTML = `
-                <polygon points="-0.216,0 0.216,0 0,-0.3" fill="#ffffff" opacity="0.3"/>
-                <rect x="-0.3" y="18.44" width="0.6" height="0.1" fill="#ffffff" opacity="0.3"/>
-                <line x1="0" y1="0" x2="0" y2="20" stroke="#475569" stroke-width="0.01" stroke-dasharray="0.5 0.5"/>
-            `;
+                svgTop.innerHTML = `
+                    <polygon points="-0.216,0 0.216,0 0,-0.3" fill="#ffffff" opacity="0.3"/>
+                    <rect x="-0.3" y="18.44" width="0.6" height="0.1" fill="#ffffff" opacity="0.3"/>
+                    <line x1="0" y1="0" x2="0" y2="20" stroke="#475569" stroke-width="0.01" stroke-dasharray="0.5 0.5"/>
+                `;
 
-            // 3. 真横側面図の再描画
-            svgSide.innerHTML = `
-                <line x1="-1" y1="0" x2="20" y2="0" stroke="#475569" stroke-width="0.05"/>
-                <line x1="0" y1="${szLow}" x2="0" y2="${szHigh}" stroke="#38bdf8" stroke-width="0.02"/>
-                <rect x="-0.2" y="0" width="0.4" height="0.05" fill="#ffffff" opacity="0.3"/> `;
+                svgSide.innerHTML = `
+                    <line x1="-1" y1="2.0" x2="20" y2="2.0" stroke="#475569" stroke-width="0.05"/>
+                    <line x1="0" y1="${2.0 - szHigh}" x2="0" y2="${2.0 - szLow}" stroke="#38bdf8" stroke-width="0.02"/>
+                `;
 
-            // ボールの軌道プロット
-            trajectory3D.forEach((pt, idx) => {
-                const opacity = (idx + 1) / trajectory3D.length; // 新しいボールほど濃くする
-                const color = "#f59e0b"; // ボールの色（オレンジ）
-
-                // 正面図 (X, Y)
-                svgFront.innerHTML += `<circle cx="${pt.X}" cy="${pt.Y}" r="0.03" fill="${color}" opacity="${opacity}" />`;
-                // 真上図 (X, Z) - SVGは下がプラスなのでZをそのまま使う
-                svgTop.innerHTML += `<circle cx="${pt.X}" cy="${pt.Z}" r="0.08" fill="${color}" opacity="${opacity}" />`;
-                // 真横図 (Z, Y) - X軸をZ(距離)、Y軸をY(高さ)にする
-                svgSide.innerHTML += `<circle cx="${pt.Z}" cy="${pt.Y}" r="0.08" fill="${color}" opacity="${opacity}" />`;
-            });
+                trajectory3D.forEach((pt, idx) => {
+                    const opacity = (idx + 1) / trajectory3D.length;
+                    svgFront.innerHTML += `<circle cx="${pt.X}" cy="${1.5 - pt.Y}" r="0.03" fill="#f59e0b" opacity="${opacity}" />`;
+                    svgTop.innerHTML += `<circle cx="${pt.X}" cy="${pt.Z}" r="0.08" fill="#f59e0b" opacity="${opacity}" />`;
+                    svgSide.innerHTML += `<circle cx="${pt.Z}" cy="${2.0 - pt.Y}" r="0.08" fill="#f59e0b" opacity="${opacity}" />`;
+                });
+            } catch(e) {}
         }
+
+        document.getElementById('sz-low').addEventListener('input', updatePlots);
+        document.getElementById('sz-high').addEventListener('input', updatePlots);
+        updatePlots();
 
         document.getElementById('clear-data-btn').onclick = () => {
             trajectory3D = [];
             document.getElementById('result-text').textContent = "READY";
             document.getElementById('result-text').style.color = "#64748b";
             document.getElementById('speed-text').innerHTML = `-- <span style="font-size: 18px;">km/h</span>`;
-            document.getElementById('accuracy-text').innerHTML = `-- <span style="font-size: 18px;">mm</span>`;
             updatePlots();
         };
     </script>
